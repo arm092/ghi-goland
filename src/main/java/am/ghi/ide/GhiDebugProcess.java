@@ -114,7 +114,8 @@ final class GhiDebugProcess extends XDebugProcess {
             if(error!=null){if(!handler.isProcessTerminated())getSession().reportError("Delve "+name+": "+error.getMessage());return;}
             JsonObject state=object(result,"State");
             if(bool(state,"exited")){stop();getSession().stop();return;}
-            if(name.equals("continue")&&editingBreakpoints.get()&&string(state,"stopReason").equals("manual"))return;
+            String reason=string(state,"stopReason");
+            if(name.equals("continue")&&editingBreakpoints.get()&&(reason.isBlank()||reason.equals("manual")))return;
             JsonObject thread=object(state,"currentThread");
             if(thread==null)return;
             JsonObject goroutine=object(state,"currentGoroutine");
@@ -160,7 +161,9 @@ final class GhiDebugProcess extends XDebugProcess {
                     JsonObject halt=new JsonObject();halt.addProperty("name","halt");
                     JsonObject state=object(client.request("Command",halt).get(3,TimeUnit.SECONDS),"State");
                     if(interrupted!=null)interrupted.get(3,TimeUnit.SECONDS);
-                    resume=!bool(state,"exited")&&string(state,"stopReason").equals("manual");
+                    String reason=string(state,"stopReason");
+                    // Older bundled Delve versions omit stopReason for a manual halt.
+                    resume=!bool(state,"exited")&&(reason.isBlank()||reason.equals("manual"));
                 }
                 completion.accept(client.request(operation,params).get(3,TimeUnit.SECONDS),null);
             }catch(Exception error){completion.accept(null,error);}

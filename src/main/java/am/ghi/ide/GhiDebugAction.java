@@ -15,6 +15,7 @@ import com.intellij.xdebugger.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.net.*;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
@@ -46,7 +47,8 @@ public final class GhiDebugAction extends DumbAwareAction {
                     GhiDebugNames names=GhiDebugNames.read(executable);
                     int port;
                     try(var reserved=new ServerSocket(0,1,InetAddress.getByName("127.0.0.1"))){port=reserved.getLocalPort();}
-                    List<String> command=new ArrayList<>(List.of(dlv.getAbsolutePath(),"exec",executable.toString(),"--headless","--api-version=2","--listen=127.0.0.1:"+port));
+                    // GoLand 2025.1 bundles Delve 1.25, while Ghi builds with Go 1.26.
+                    List<String> command=new ArrayList<>(List.of(dlv.getAbsolutePath(),"exec",executable.toString(),"--headless","--api-version=2","--listen=127.0.0.1:"+port,"--check-go-version=false"));
                     if(!state.arguments.isBlank()){command.add("--");command.addAll(ParametersListUtil.parse(state.arguments));}
                     var line=new GeneralCommandLine(command).withWorkDirectory(directory.toFile()).withCharset(StandardCharsets.UTF_8);
                     ApplicationManager.getApplication().invokeLater(()->{
@@ -56,11 +58,11 @@ public final class GhiDebugAction extends DumbAwareAction {
                             var console=TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
                             console.attachToProcess(handler);
                             InetSocketAddress address=new InetSocketAddress("127.0.0.1",port);
-                            XDebuggerManager.getInstance(project).newSessionBuilder(new XDebugProcessStarter(){
+                            startSession(XDebuggerManager.getInstance(project),new XDebugProcessStarter(){
                                 @Override public @NotNull XDebugProcess start(@NotNull XDebugSession session){
                                     var process=new GhiDebugProcess(session,handler,console,names,directory);process.connect(address);return process;
                                 }
-                            }).sessionName("Ghi debug").showTab(true).startSession();
+                            });
                         }catch(Exception error){Messages.showErrorDialog(project,error.getMessage(),"Ghi Debugger");}
                     });
                 }catch(Exception error){ApplicationManager.getApplication().invokeLater(()->{
@@ -68,5 +70,21 @@ public final class GhiDebugAction extends DumbAwareAction {
                 });}
             }
         });
+    }
+    private static void startSession(XDebuggerManager manager,XDebugProcessStarter starter) throws Exception {
+        try{
+            // XDebugSessionBuilder was introduced after platform 251.
+            Object builder=XDebuggerManager.class.getMethod("newSessionBuilder",XDebugProcessStarter.class).invoke(manager,starter);
+            Class<?> builderApi=Class.forName("com.intellij.xdebugger.XDebugSessionBuilder");
+            builder=builderApi.getMethod("sessionName",String.class).invoke(builder,"Ghi debug");
+            builder=builderApi.getMethod("showTab",boolean.class).invoke(builder,true);
+            builderApi.getMethod("startSession").invoke(builder);
+        }catch(NoSuchMethodException missing){
+            XDebuggerManager.class.getMethod("startSessionAndShowTab",String.class,com.intellij.execution.ui.RunContentDescriptor.class,XDebugProcessStarter.class)
+                .invoke(manager,"Ghi debug",null,starter);
+        }catch(InvocationTargetException error){
+            if(error.getCause() instanceof Exception cause)throw cause;
+            throw error;
+        }
     }
 }

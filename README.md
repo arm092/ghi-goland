@@ -7,7 +7,11 @@ GoLand support for the [Ghi programming language](https://github.com/arm092/ghi)
 - GoLand 2026.2.x (platform build 262) with its bundled Go plugin.
 - The [Ghi compiler](https://github.com/arm092/ghi/releases) for build, run, formatting, diagnostics, and debugging actions.
 
-Install the plugin from JetBrains Marketplace when available, or use **Settings → Plugins → Install Plugin from Disk** with the ZIP from this repository's [releases](https://github.com/arm092/ghi-goland/releases). Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+## Install
+
+The [Ghi listing on JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34508-ghi) was submitted on September 25, 2026 and is awaiting moderation. It is not yet available for installation from Marketplace. After approval, open **Settings → Plugins → Marketplace**, search for **Ghi**, and install it.
+
+Until then, download the [v0.1.0 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.0/ghi-goland-0.1.0.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
 
 ## Build and test
 

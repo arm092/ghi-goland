@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>am.ghi.language</id>
     <name>Ghi</name>
-    <vendor url="https://github.com/arm092/ghi">Arman Khachatryan</vendor>
+    <vendor url="https://github.com/arm092/ghi-goland">Arman Khachatryan</vendor>
     <description><![CDATA[
         Ghi (Go, Hierarchy, Interfaces) support for GoLand.
         Recognizes .ghi files, highlights syntax, supports comments and brace matching,

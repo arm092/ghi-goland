@@ -53,12 +53,19 @@ public final class GhiHighlightingLexer extends LexerBase {
                 if((text(open)+t).equals("()") || (text(open)+t).equals("[]") || (text(open)+t).equals("{}")){close[stack.pop()]=i;}
             }
         }
-        Map<String,IElementType> types=new HashMap<>();Set<String> namespaces=new HashSet<>(),constants=new HashSet<>();
+        Map<String,IElementType> types=new HashMap<>();Map<String,Set<String>> enums=new HashMap<>();
+        Set<String> namespaces=new HashSet<>(),constants=new HashSet<>();
         for(int i=0;i<words.size();i++){
             String t=text(i);
-            if(Set.of("class","interface","type").contains(t) && id(i+1)){
+            if(Set.of("class","interface","type","enum").contains(t) && id(i+1)){
                 var role=t.equals("interface")?INTERFACE:TYPE;types.put(text(i+1),role);color(i+1,role);
-                if(!t.equals("type")){
+                if(t.equals("enum")){
+                    int body=i+2;while(body<words.size()&&!text(body).equals("{")&&!newline(body-1,body))body++;
+                    Set<String> cases=new HashSet<>();
+                    if(text(body).equals("{")&&close[body]>body)for(int at=body+1;at<close[body];at++)
+                        if(id(at)&&(text(at-1).equals("{")||text(at-1).equals(",")||newline(at-1,at))){cases.add(text(at));color(at,CONSTANT);}
+                    enums.put(text(i+1),cases);
+                }else if(!t.equals("type")){
                     int body=i+2;while(body<words.size() && !text(body).equals("{"))body++;
                     if(body<words.size())classMembers.set(body+1,close[body]<0?words.size():close[body]);
                 }
@@ -138,7 +145,10 @@ public final class GhiHighlightingLexer extends LexerBase {
         for(int i=0;i<words.size();i++){
             if(!id(i) || colors.containsKey(words.get(i).start()))continue;
             String t=text(i),before=text(i-1),after=text(i+1);
-            if(before.equals(".")){color(i,after.equals("(")?METHOD:types.getOrDefault(t,FIELD));continue;}
+            if(before.equals(".")){
+                color(i,enums.getOrDefault(text(i-2),Set.of()).contains(t)?CONSTANT:after.equals("(")?METHOD:types.getOrDefault(t,FIELD));
+                continue;
+            }
             if(BUILTINS.contains(t)){color(i,BUILTIN_TYPE);continue;}
             if(types.containsKey(t)){color(i,types.get(t));continue;}
             if(namespaces.contains(t) && after.equals(".")){color(i,NAMESPACE);continue;}

@@ -35,6 +35,16 @@ public class GhiCoreTest {
         assertEquals(GhiHighlightingLexer.NAMESPACE,roles.get(source.indexOf("errors")));
         assertEquals(GhiLexer.KEYWORD,roles.get(source.indexOf("new")));
     }
+    @Test public void enumKeywordAndCaseColors(){
+        String source="enum Direction {North, South,}\nenum Status string {Pending = \"pending\", Done = \"done\",}\nfunc use(){Status.Pending;Direction.North}\n";
+        assertTrue(lex(source).stream().anyMatch(token->token.text().equals("enum")&&token.type()==GhiLexer.KEYWORD));
+        var lexer=new GhiHighlightingLexer();lexer.start(source);var roles=new HashMap<Integer,IElementType>();
+        while(lexer.getTokenType()!=null){roles.put(lexer.getTokenStart(),lexer.getTokenType());lexer.advance();}
+        assertEquals(GhiHighlightingLexer.TYPE,roles.get(source.indexOf("Direction")));
+        assertEquals(GhiHighlightingLexer.CONSTANT,roles.get(source.indexOf("North")));
+        assertEquals(GhiHighlightingLexer.CONSTANT,roles.get(source.indexOf("Pending")));
+        assertEquals(GhiHighlightingLexer.CONSTANT,roles.get(source.lastIndexOf("Pending")));
+    }
     @Test public void supplementaryUnicodeIdentifiers(){
         var tokens=lex("𐐀 := 1; _ = 𐐀");
         assertFalse(tokens.stream().anyMatch(t->t.type()==TokenType.BAD_CHARACTER));

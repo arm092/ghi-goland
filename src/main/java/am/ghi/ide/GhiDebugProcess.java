@@ -2,8 +2,8 @@ package am.ghi.ide;
 
 import com.google.gson.*;
 import com.intellij.execution.process.ProcessHandler;
-import com.intellij.execution.process.ProcessAdapter;
 import com.intellij.execution.process.ProcessEvent;
+import com.intellij.execution.process.ProcessListener;
 import com.intellij.execution.ui.ExecutionConsole;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
@@ -46,7 +46,7 @@ final class GhiDebugProcess extends XDebugProcess {
 
     GhiDebugProcess(XDebugSession session,ProcessHandler handler,ExecutionConsole console,GhiDebugNames names,Path root){
         super(session);this.handler=handler;this.console=console;this.names=names;this.root=root;session.setPauseActionSupported(true);
-        handler.addProcessListener(new ProcessAdapter(){@Override public void processTerminated(@NotNull ProcessEvent event){
+        handler.addProcessListener(new ProcessListener(){@Override public void processTerminated(@NotNull ProcessEvent event){
             try{GhiDelve client=delve;if(client!=null)client.close();}catch(IOException ignored){}
             if(!session.isStopped())session.stop();
         }});

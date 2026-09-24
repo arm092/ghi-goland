@@ -85,7 +85,34 @@ public class GhiIdeTest extends BasePlatformTestCase {
         var holder=(com.intellij.lang.annotation.AnnotationHolder)java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),new Class[]{com.intellij.lang.annotation.AnnotationHolder.class},(proxy,method,args)->{fail("Stale diagnostics must not create editor annotations");return null;});
         annotator.apply(edited,java.util.List.of(new GhiExternalAnnotator.Problem(1,0,"old",document.getModificationStamp()-1)),holder);
         assertTrue(GhiExternalAnnotator.parse(root.resolve("else.ghi")+":2:3: other",input).isEmpty());
-    }    public void testImportedNamespaceAndIncompleteMemberCompletion(){
+    }
+    public void testUnsavedCompilerDiagnosticsUseEditorSnapshot() throws Exception {
+        String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
+        Path root=Files.createDirectory(diskRoot.resolve("unsaved-diagnostics"));Path path=root.resolve("main.ghi");
+        String saved="namespace main\nfunc main(){}\n";
+        String unsaved="namespace main\nfunc main(){missingName()}\n";
+        Files.writeString(path,saved);
+        var virtual=com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);
+        assertNotNull(virtual);
+        myFixture.configureFromExistingVirtualFile(virtual);
+        var file=myFixture.getFile();
+        var editor=myFixture.getEditor();
+        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(getProject(),()->editor.getDocument().setText(unsaved));
+        var settings=GhiSettings.get(getProject()).getState();
+        String previousCompiler=settings.executable,previousDirectory=settings.directory;
+        try{
+            settings.executable=compiler;settings.directory=root.toString();
+            var annotator=new GhiExternalAnnotator();var input=annotator.collectInformation(file,editor,false);
+            assertNotNull(input);assertTrue(input.overlay());assertEquals(unsaved,input.text());
+            var problems=annotator.doAnnotate(input);
+            assertFalse("Unsaved buffer must be checked",problems.isEmpty());
+            assertEquals(1,problems.getFirst().line());
+            assertTrue(problems.getFirst().message(),problems.getFirst().message().contains("missingName"));
+            assertEquals(saved,Files.readString(path));
+            assertTrue(annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,saved,0)).isEmpty());
+        }finally{settings.executable=previousCompiler;settings.directory=previousDirectory;}
+    }
+    public void testImportedNamespaceAndIncompleteMemberCompletion(){
         var library=myFixture.addFileToProject("users/person.ghi","namespace app.users\nclass Person { public name string }\nfunc create() Person { return new Person() }\n");
         var file=myFixture.configureByText("imports.ghi","namespace main\nimport app.users as users\nfunc main(){ person := new users.Person(); person.<caret>\n");
         var model=GhiSymbols.forFile(file);var target=model.resolve(file,file.getText().indexOf("Person"));assertNotNull(target);assertEquals(library,target.getContainingFile());
@@ -176,6 +203,72 @@ public class GhiIdeTest extends BasePlatformTestCase {
         assertEquals("[]string",completed.stream().filter(symbol->symbol.name.equals("value")).findFirst().orElseThrow().type);
         completed=model.complete(file,source.indexOf("over.take")+5);
         assertEquals(java.util.List.of("input int"),completed.stream().filter(symbol->symbol.name.equals("take")).findFirst().orElseThrow().parameters);
+    }
+    public void testExpressionReceiverInferenceAndCompletion(){
+        String source="namespace main\n"
+            +"class User {public name string\npublic func friend() User{return this}}\n"
+            +"class Box[T any] {public value T\npublic func get() T{return this.value}}\n"
+            +"func make() User{return new User()}\n"
+            +"func use(box Box[User]){\n"
+            +" created:=make();created.name;\n"
+            +" field:=box.value;field.name;\n"
+            +" called:=box.get();called.name;\n"
+            +" box.get().name;box.value.friend().name;\n"
+            +" fn:=box.get;fn().name;fn.name;\n"
+            +" bad:=box.get()+1;bad.name\n}\n";
+        var file=myFixture.configureByText("expression-types.ghi",source);var model=GhiSymbols.forFile(file);
+        var name=model.resolve(file,source.indexOf("name string"));
+        for(String use:java.util.List.of("created.name","field.name","called.name","box.get().name","box.value.friend().name","fn().name")){
+            int at=source.indexOf(use)+use.lastIndexOf("name");
+            assertEquals(use,name,model.resolve(file,at));
+            assertTrue(use,model.complete(file,at).stream().anyMatch(symbol->symbol.name.equals("name")));
+        }
+        int bad=source.indexOf("bad.name")+4;
+        assertNull(model.resolve(file,bad));
+        assertFalse(model.complete(file,bad).stream().anyMatch(symbol->symbol.name.equals("name")));
+        int methodValue=source.indexOf("fn.name")+3;
+        assertNull(model.resolve(file,methodValue));
+        assertFalse(model.complete(file,methodValue).stream().anyMatch(symbol->symbol.name.equals("name")));
+    }
+    public void testEnumCasesNavigationCompletionAndValueTypes(){
+        var library=myFixture.addFileToProject("models/enums.ghi","namespace models\n"
+            +"enum Direction {North, South,}\n"
+            +"enum Status string {Pending = \"pending\", Done = \"done\",}\n"
+            +"enum Code int {Ok = 200, Missing = 404,}\n"
+            +"enum SwitchState bool {On = true, Off = false,}\n");
+        String source="namespace main\nimport models as m\nfunc use(direction m.Direction,status string,code int,enabled bool){\n"
+            +"direction=m.Direction.North;status=m.Status.Pending;code=m.Code.Ok;enabled=m.SwitchState.On\n}\n";
+        var file=myFixture.configureByText("enum-use.ghi",source);var model=GhiSymbols.forFile(file);
+        for(String caseName:java.util.List.of("m.Direction.North","m.Status.Pending","m.Code.Ok","m.SwitchState.On"))
+            assertEquals(caseName,library,model.resolve(file,source.indexOf(caseName)+caseName.lastIndexOf('.')+1).getContainingFile());
+        for(var check:java.util.Map.of("m.Direction.North","Direction","m.Status.Pending","string","m.Code.Ok","int","m.SwitchState.On","bool").entrySet()){
+            int at=source.indexOf(check.getKey())+check.getKey().lastIndexOf('.')+1;
+            var candidate=model.complete(file,at).stream().filter(symbol->symbol.name.equals(check.getKey().substring(check.getKey().lastIndexOf('.')+1))).findFirst().orElseThrow();
+            assertEquals(check.getKey(),"enumCase",candidate.kind);
+            assertEquals(check.getKey(),check.getValue(),candidate.type);
+        }
+        assertTrue(GhiTypeImports.candidates(file,"Status").stream().anyMatch(choice->choice.path().equals("models.Status")));
+        file=myFixture.configureByText("selected-enum.ghi","namespace main\nimport models.Status as Status\nfunc use(){Status.Pending}\n");
+        model=GhiSymbols.forFile(file);
+        assertEquals(library,model.resolve(file,file.getText().indexOf("Status.Pending")+7).getContainingFile());
+        assertEquals("string",model.complete(file,file.getText().indexOf("Status.Pending")+7).stream()
+            .filter(symbol->symbol.name.equals("Pending")).findFirst().orElseThrow().type);
+    }
+    public void testCompilerChecksBackedEnumCases() throws Exception {
+        String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
+        Path root=Files.createDirectory(diskRoot.resolve("enum-diagnostics"));Path path=root.resolve("main.ghi");
+        String valid="namespace main\nenum Status string {Pending = \"pending\", Done = \"done\",}\n"
+            +"func consume(value string){}\nfunc main(){consume(Status.Pending)}\n";
+        Files.writeString(path,valid);
+        var annotator=new GhiExternalAnnotator();
+        var validProblems=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,valid,0));
+        assertTrue(validProblems.toString(),validProblems.isEmpty());
+        String invalid="namespace main\nenum Status string {Pending = \"pending\", Done = \"done\",}\n"
+            +"func main(){Status.Pending = \"changed\"}\n";
+        Files.writeString(path,invalid);
+        var problems=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,invalid,0));
+        assertFalse("Backed enum cases must be immutable",problems.isEmpty());
+        assertTrue(problems.toString(),problems.stream().anyMatch(problem->problem.message().contains("Status.Pending")));
     }
     public void testEmbeddedGenericConstraintMembers(){
         String source="namespace main\n"

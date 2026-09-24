@@ -56,11 +56,11 @@ public final class GhiDebugAction extends DumbAwareAction {
                             var console=TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
                             console.attachToProcess(handler);
                             InetSocketAddress address=new InetSocketAddress("127.0.0.1",port);
-                            XDebuggerManager.getInstance(project).startSessionAndShowTab("Ghi debug",null,new XDebugProcessStarter(){
+                            XDebuggerManager.getInstance(project).newSessionBuilder(new XDebugProcessStarter(){
                                 @Override public @NotNull XDebugProcess start(@NotNull XDebugSession session){
                                     var process=new GhiDebugProcess(session,handler,console,names,directory);process.connect(address);return process;
                                 }
-                            });
+                            }).sessionName("Ghi debug").showTab(true).startSession();
                         }catch(Exception error){Messages.showErrorDialog(project,error.getMessage(),"Ghi Debugger");}
                     });
                 }catch(Exception error){ApplicationManager.getApplication().invokeLater(()->{

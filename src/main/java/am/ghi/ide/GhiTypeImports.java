@@ -12,7 +12,7 @@ final class GhiTypeImports {
     record Site(int start,int end,String text) {}
     static List<Choice> candidates(PsiFile file,String name){
         var model=GhiSymbols.forFile(file);List<Choice> result=new ArrayList<>();
-        for(var symbol:model.symbols)if(Set.of("class","interface","type").contains(symbol.kind)&&symbol.scope.parent==null
+        for(var symbol:model.symbols)if(Set.of("class","interface","type","enum").contains(symbol.kind)&&symbol.scope.parent==null
             &&(name==null||symbol.name.equals(name))){
             String namespace=model.sources.get(symbol.file).namespace;
             if(!namespace.isEmpty())result.add(new Choice(symbol,namespace+"."+symbol.name));
@@ -29,7 +29,7 @@ final class GhiTypeImports {
             while(end<text.length()&&(Character.isUnicodeIdentifierPart(text.charAt(end))||text.charAt(end)=='.'))end++;
             if(!text.substring(start,end).contains("."))return null;
             var resolved=GhiSymbols.forFile(file).symbolAt(file,end-1);
-            if(resolved!=null&&!Set.of("class","interface","type").contains(resolved.kind))return null;
+            if(resolved!=null&&!Set.of("class","interface","type","enum").contains(resolved.kind))return null;
         }else if((start>0&&text.charAt(start-1)=='.')||GhiSymbols.forFile(file).resolve(file,start)!=null)return null;
         int lineStart=text.lastIndexOf('\n',start)+1;
         if(text.substring(lineStart,start).stripLeading().startsWith("import ")||text.substring(lineStart,start).stripLeading().startsWith("namespace "))return null;

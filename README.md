@@ -11,7 +11,15 @@ GoLand support for the [Ghi programming language](https://github.com/arm092/ghi)
 
 The [Ghi listing on JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34508-ghi) was submitted on September 25, 2026 and is awaiting moderation. It is not yet available for installation from Marketplace. After approval, open **Settings → Plugins → Marketplace**, search for **Ghi**, and install it.
 
-Until then, download the [v0.1.0 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.0/ghi-goland-0.1.0.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+Until then, download the [v0.1.1 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.1/ghi-goland-0.1.1.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+
+## Editor diagnostics and completion
+
+Saved files use the compiler's project check. For an unsaved buffer, the plugin sends the editor text to `ghi check --stdin --filename` and leaves the file on disk untouched. This needs a Ghi compiler with support for that check mode. The buffer must belong to an existing production `.ghi` file in the configured project; new files without a disk path and excluded test files are outside this mode. Diagnostics are discarded if the buffer changes while the check runs.
+
+Member completion follows explicitly declared types and simple constructor, function call, field, method call, and local initializer chains. It does not infer types for compound expressions or arbitrary control flow.
+
+Plain `enum Direction { North, South, }` cases have the distinct `Direction` type. Explicit `string`, `int`, or `bool` backed enum cases use that backing type. The plugin highlights enum declarations and cases and supports case navigation and completion; the compiler checks invalid declarations and assignments to immutable cases. These enum checks and unsaved-buffer diagnostics require a compiler build containing the corresponding language and `check --stdin --filename` support.
 
 ## Build and test
 

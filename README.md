@@ -13,7 +13,7 @@ GoLand 2025.1 bundles a Delve version whose Go version check rejects the Go 1.26
 
 The plugin has a [JetBrains Marketplace listing](https://plugins.jetbrains.com/plugin/34508-ghi). Versions become available there after Marketplace review.
 
-To install directly, download the [v0.1.4 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.4/ghi-goland-0.1.4.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+To install directly, download the [v0.1.5 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.5/ghi-goland-0.1.5.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
 
 ## Editor diagnostics and completion
 
@@ -27,6 +27,12 @@ Member completion follows explicitly declared types and simple constructor, func
 
 Plain `enum Direction { North, South, }` cases have the distinct `Direction` type. Explicit `string`, `int`, or `bool` backed enum cases use that backing type. The plugin highlights enum declarations and cases and supports case navigation and completion; the compiler checks invalid declarations and assignments to immutable cases.
 
+## Debugging
+
+Use **Debug Project** to build with Ghi source metadata and start GoLand's bundled Delve. Line breakpoints, stepping, receiver fields, inherited exception fields and caught exceptions are supported. Variables shadowed by the active binding are omitted, so repeated catch names show the current exception. Breakpoint conditions and expression evaluation are not supported yet; exceptions can be inspected at line breakpoints in throw and catch blocks.
+
+The Request Journal integration check uses the actual HTTP service, a temporary SQLite database, GoLand's XDebugSession and real Delve. Verified with Ghi 0.2.6 on GoLand 2025.1.7.2 and 2026.2.3, it checks service arguments and receiver fields, step over, InvalidInput's inherited message/code and violations, NotFound's inherited message/code and stackTrace, and HTTP responses 201/422/404. It runs through the IntelliJ test framework; it does not verify the native IDE window layout or mouse interactions.
+
 ## Build and test
 
 The repository includes a Gradle wrapper. Use a Java 21 runtime and run:
@@ -36,6 +42,8 @@ The repository includes a Gradle wrapper. Use a Java 21 runtime and run:
 ```
 
 On Windows, use `gradlew.bat`. You can set `-PlocalIde=/path/to/GoLand` to build and verify against an installed IDE without downloading one. Full integration tests use `GHI_TEST_COMPILER` for the compiler executable, `GHI_TEST_GO_ROOT` for the Go installation, and `GOMODCACHE` for the Go module cache.
+
+Set `GHI_TEST_REQUEST_JOURNAL` to a Request Journal checkout with its Mojave dependencies installed to enable `testLiveRequestJournalDebugger`. The test copies the consumer into a temporary directory and runs there with free local ports and a separate database.
 
 The installable ZIP is written to `build/distributions/`.
 

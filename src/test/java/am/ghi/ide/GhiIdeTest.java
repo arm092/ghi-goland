@@ -864,6 +864,143 @@ public class GhiIdeTest extends BasePlatformTestCase {
         excludeCache(library);
         assertEquals(target,GhiSymbols.forFile(library).resolve(library,library.getText().indexOf("next.Next")+5).getContainingFile());
     }
+    public void testLiveRequestJournalDebugger() throws Exception {
+        String consumer=System.getenv("GHI_TEST_REQUEST_JOURNAL"),compiler=System.getenv("GHI_TEST_COMPILER");
+        if(consumer==null||compiler==null)return;
+        Path original=Path.of(consumer),root=Files.createDirectory(diskRoot.resolve("request-journal"));
+        // Compile and run a snapshot with its own SQLite database, never the consumer checkout.
+        try(var paths=Files.walk(original)){
+            for(Path path:paths.toList()){
+                String relative=original.relativize(path).toString().replace('\\','/');
+                if(relative.startsWith("bin/")||relative.startsWith(".ghi/build/")||relative.startsWith("tests/")||relative.contains(".db"))continue;
+                Path destination=root.resolve(relative);
+                if(Files.isDirectory(path))Files.createDirectories(destination);
+                else Files.copy(path,destination);
+            }
+        }
+        Path executable=root.resolve("bin/request-journal-debug.exe");
+        var build=new ProcessBuilder(compiler,"build","--debug","-o",executable.toString(),root.toString()).directory(root.toFile()).redirectErrorStream(true).start();
+        String output=new String(build.getInputStream().readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(output,0,build.waitFor());
+        var virtual=com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByNioFile(root);assertNotNull(virtual);
+        virtual.refresh(false,true);
+        com.intellij.openapi.application.WriteAction.run(()->{
+            var roots=com.intellij.openapi.roots.ModuleRootManager.getInstance(myFixture.getModule()).getModifiableModel();roots.addContentEntry(virtual.getUrl());roots.commit();
+        });
+        myFixture.configureFromExistingVirtualFile(virtual.findFileByRelativePath("main.ghi"));
+        var type=com.intellij.xdebugger.XDebuggerUtil.getInstance().findBreakpointType(GhiBreakpointType.class);
+        var manager=com.intellij.xdebugger.XDebuggerManager.getInstance(getProject());
+        var points=new java.util.ArrayList<com.intellij.xdebugger.breakpoints.XLineBreakpoint<GhiBreakpointType.Properties>>();
+        String[] paths={"application/service.ghi","application/service.ghi","httpapi/router.ghi","storage/repository.ghi","httpapi/router.ghi"};
+        String[] markers={"value = title(check, value)","throw failure","\"fields\": err.violations","throw new domain.NotFound()","\"error\": err.message"};
+        int[] lines=new int[paths.length];
+        // The NotFound catch has its own inherited message field, distinct from BadRequest.
+        for(int i=0;i<paths.length;i++){
+            String source=Files.readString(root.resolve(paths[i]));int offset=source.indexOf(markers[i]);
+            if(i==4)offset=source.indexOf(markers[i],source.indexOf("catch err domain.NotFound"));
+            assertTrue(markers[i],offset>=0);lines[i]=source.substring(0,offset).split("\n",-1).length-1;
+            var file=virtual.findFileByRelativePath(paths[i]);assertNotNull(file);
+            points.add(manager.getBreakpointManager().addLineBreakpoint(type,file.getUrl(),lines[i],type.createBreakpointProperties(file,lines[i])));
+        }
+        int debugPort,httpPort;
+        try(var socket=new java.net.ServerSocket(0)){debugPort=socket.getLocalPort();}
+        try(var socket=new java.net.ServerSocket(0)){httpPort=socket.getLocalPort();}
+        var dlv=com.goide.execution.GoRunUtil.localDlv();assertNotNull(dlv);
+        var command=new com.intellij.execution.configurations.GeneralCommandLine(dlv.getAbsolutePath(),"exec",executable.toString(),"--headless","--api-version=2","--listen=127.0.0.1:"+debugPort,"--check-go-version=false")
+            .withWorkDirectory(root.toFile()).withEnvironment("JOURNAL_ADDR","127.0.0.1:"+httpPort).withEnvironment("JOURNAL_DB",root.resolve("debug.db").toString());
+        var handler=new com.intellij.execution.process.KillableColoredProcessHandler(command);
+        var processOutput=new StringBuffer();handler.addProcessListener(new com.intellij.execution.process.ProcessListener(){
+            @Override public void onTextAvailable(com.intellij.execution.process.ProcessEvent event,com.intellij.openapi.util.Key outputType){processOutput.append(event.getText());}
+        });
+        var console=com.intellij.execution.filters.TextConsoleBuilderFactory.getInstance().createBuilder(getProject()).getConsole();console.attachToProcess(handler);
+        com.intellij.xdebugger.XDebugSession session=null;
+        var http=java.net.http.HttpClient.newHttpClient();String base="http://127.0.0.1:"+httpPort;
+        try{
+            var start=GhiDebugAction.class.getDeclaredMethod("startSession",com.intellij.xdebugger.XDebuggerManager.class,com.intellij.xdebugger.XDebugProcessStarter.class);start.setAccessible(true);
+            var names=GhiDebugNames.read(executable);
+            var starter=new com.intellij.xdebugger.XDebugProcessStarter(){
+                @Override public com.intellij.xdebugger.XDebugProcess start(com.intellij.xdebugger.XDebugSession active){
+                    var process=new GhiDebugProcess(active,handler,console,names,root);process.connect(new java.net.InetSocketAddress("127.0.0.1",debugPort));return process;
+                }
+            };
+            var started=new java.util.concurrent.CompletableFuture<Void>();
+            com.intellij.openapi.progress.ProgressManager.getInstance().run(new com.intellij.openapi.progress.Task.Backgroundable(getProject(),"Start Request Journal debugger",false){
+                @Override public void run(com.intellij.openapi.progress.ProgressIndicator indicator){
+                    com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater(()->{
+                        try{start.invoke(null,manager,starter);started.complete(null);}catch(Exception error){started.completeExceptionally(error);}
+                    });
+                }
+            });
+            long startedBy=System.currentTimeMillis()+15000;
+            while(!started.isDone()&&System.currentTimeMillis()<startedBy){com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents();Thread.sleep(25);}
+            started.get(1,TimeUnit.SECONDS);
+            session=manager.getDebugSessions()[0];
+            long readyBy=System.currentTimeMillis()+30000;boolean ready=false;
+            while(System.currentTimeMillis()<readyBy&&!ready){
+                com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents();
+                try{ready=http.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(base+"/health")).timeout(java.time.Duration.ofSeconds(1)).build(),java.net.http.HttpResponse.BodyHandlers.ofString()).statusCode()==200;}
+                catch(java.io.IOException ignored){Thread.sleep(50);}
+            }
+            assertTrue("Real Request Journal HTTP server did not start: "+processOutput+"; suspended="+session.isSuspended()+"; position="+session.getCurrentPosition(),ready);
+            var valid=journalPost(http,base,"{\"title\":\"Debugger request\"}");
+            journalStop(session,root.resolve(paths[0]),lines[0]);
+            var values=debugChildren(session.getSuspendContext().getActiveExecutionStack().getTopFrame());
+            assertTrue(debugDisplay(debugValue(values,"value")).contains("Debugger request"));
+            assertNotNull(debugValue(debugChildren(debugValue(values,"this")),"repository"));
+            assertTrue(journalFrame(session).contains("journal.application.Service.Create"));
+            session.stepOver(false);journalStop(session,root.resolve(paths[0]),lines[0]+1);
+            session.resume();assertEquals(201,valid.get(15,TimeUnit.SECONDS).statusCode());
+            var invalid=journalPost(http,base,"{\"title\":\"\"}");
+            journalStop(session,root.resolve(paths[0]),lines[0]);session.resume();
+            journalStop(session,root.resolve(paths[1]),lines[1]);
+            values=debugChildren(session.getSuspendContext().getActiveExecutionStack().getTopFrame());
+            var failure=debugValue(values,"failure");assertNotNull(failure);
+            var fields=debugChildren(failure);
+            assertNotNull("Inherited Exception message unavailable: "+journalNames(fields),journalField(failure,"message",5));
+            assertEquals("422",debugDisplay(journalField(failure,"code",5)));
+            assertNotNull(journalField(failure,"violations",5));
+            session.resume();journalStop(session,root.resolve(paths[2]),lines[2]);
+            var caughtValues=debugChildren(session.getSuspendContext().getActiveExecutionStack().getTopFrame());
+            assertEquals("Only the active catch binding should be named err",1,java.util.stream.IntStream.range(0,caughtValues.size()).filter(i->caughtValues.getName(i).equals("err")).count());
+            var caught=debugValue(caughtValues,"err");assertNotNull(caught);
+            assertTrue(debugDisplay(journalField(caught,"message",5)).contains("invalid request fields"));
+            assertEquals("422",debugDisplay(journalField(caught,"code",5)));
+            session.resume();assertEquals(422,invalid.get(15,TimeUnit.SECONDS).statusCode());
+            var missing=http.sendAsync(java.net.http.HttpRequest.newBuilder(java.net.URI.create(base+"/requests/999999")).build(),java.net.http.HttpResponse.BodyHandlers.ofString());
+            journalStop(session,root.resolve(paths[3]),lines[3]);session.resume();
+            journalStop(session,root.resolve(paths[4]),lines[4]);
+            caught=debugValue(debugChildren(session.getSuspendContext().getActiveExecutionStack().getTopFrame()),"err");assertNotNull(caught);
+            assertTrue(debugDisplay(journalField(caught,"message",5)).contains("request not found"));
+            assertEquals("404",debugDisplay(journalField(caught,"code",5)));
+            assertNotNull(journalField(caught,"stackTrace",5));
+            session.resume();assertEquals(404,missing.get(15,TimeUnit.SECONDS).statusCode());
+        }finally{
+            if(session!=null){session.getDebugProcess().stop();session.stop();
+                var descriptor=session.getRunContentDescriptor();if(descriptor!=null){com.intellij.execution.ui.RunContentManager.getInstance(getProject()).removeRunContent(com.intellij.execution.executors.DefaultDebugExecutor.getDebugExecutorInstance(),descriptor);if(!com.intellij.openapi.util.Disposer.isDisposed(descriptor))com.intellij.openapi.util.Disposer.dispose(descriptor);}}
+            handler.destroyProcess();
+            if(session==null){handler.startNotify();handler.getProcess().destroyForcibly();}
+            long stoppedBy=System.currentTimeMillis()+10000;while(!handler.isProcessTerminated()&&System.currentTimeMillis()<stoppedBy){com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents();Thread.sleep(50);}
+            assertTrue("Request Journal Delve process remains alive",handler.isProcessTerminated());
+            if(!com.intellij.openapi.util.Disposer.isDisposed(console))com.intellij.openapi.util.Disposer.dispose(console);
+            var editors=com.intellij.openapi.fileEditor.FileEditorManager.getInstance(getProject());for(var file:editors.getOpenFiles())editors.closeFile(file);
+            for(var point:points)manager.getBreakpointManager().removeBreakpoint(point);
+            com.intellij.openapi.application.WriteAction.run(()->{var roots=com.intellij.openapi.roots.ModuleRootManager.getInstance(myFixture.getModule()).getModifiableModel();for(var entry:roots.getContentEntries())if(entry.getUrl().equals(virtual.getUrl()))roots.removeContentEntry(entry);roots.commit();});
+        }
+    }
+    private java.util.concurrent.CompletableFuture<java.net.http.HttpResponse<String>> journalPost(java.net.http.HttpClient client,String base,String body){
+        return client.sendAsync(java.net.http.HttpRequest.newBuilder(java.net.URI.create(base+"/requests")).header("Content-Type","application/json").POST(java.net.http.HttpRequest.BodyPublishers.ofString(body)).build(),java.net.http.HttpResponse.BodyHandlers.ofString());
+    }
+    private void journalStop(com.intellij.xdebugger.XDebugSession session,Path file,int line) throws Exception {
+        long deadline=System.currentTimeMillis()+15000;
+        while(System.currentTimeMillis()<deadline){com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents();var position=session.getCurrentPosition();if(session.isSuspended()&&position!=null&&position.getLine()==line&&Path.of(position.getFile().getPath()).equals(file))return;Thread.sleep(25);}
+        var position=session.getCurrentPosition();fail("Expected "+file+":"+(line+1)+"; actual "+(position==null?"none":position.getFile().getPath()+":"+(position.getLine()+1)));
+    }
+    private String journalFrame(com.intellij.xdebugger.XDebugSession session){var text=new com.intellij.ui.SimpleColoredComponent();session.getSuspendContext().getActiveExecutionStack().getTopFrame().customizePresentation(text);return text.getCharSequence(false).toString();}
+    private String journalNames(com.intellij.xdebugger.frame.XValueChildrenList fields){var result=new java.util.ArrayList<String>();for(int i=0;i<fields.size();i++)result.add(fields.getName(i));return result.toString();}
+    private com.intellij.xdebugger.frame.XValue journalField(com.intellij.xdebugger.frame.XValue value,String name,int depth) throws Exception {
+        if(value==null||depth==0)return null;var children=debugChildren(value);var direct=debugValue(children,name);if(direct!=null)return direct;
+        for(int i=0;i<children.size();i++){var nested=journalField(children.getValue(i),name,depth-1);if(nested!=null)return nested;}return null;
+    }
     public void testLiveGhiDebuggerStopsAndStepsOnSource() throws Exception {
         String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
         String source="namespace main\nimport time \"go:time\"\nclass Counter {\n public value int\n constructor(value int){this.value=value}\n public func add(amount int) int {\n  this.value += amount\n  return this.value\n }\n}\nfunc main() {\n counter := new Counter(7)\n answer := counter.add(5)\n println(answer)\n try {\n  throw new Exception(\"debug exception\")\n } catch err Exception {\n  println(err.message)\n  println(err.code)\n }\n count := 0\n for {\n  time.Sleep(200 * time.Millisecond)\n  count += 1\n }\n}\n";

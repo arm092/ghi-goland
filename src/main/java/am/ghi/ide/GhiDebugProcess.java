@@ -30,6 +30,8 @@ import java.util.function.BiConsumer;
 
 /** Ghi presentation on top of the Delve server bundled with GoLand. */
 final class GhiDebugProcess extends XDebugProcess {
+    // Delve service/api.VariableShadowed: a same-named variable from an inactive scope.
+    private static final long VARIABLE_SHADOWED=2;
     private final ProcessHandler handler;
     private final ExecutionConsole console;
     private final GhiDebugNames names;
@@ -240,7 +242,7 @@ final class GhiDebugProcess extends XDebugProcess {
         private void addValues(XValueChildrenList result,JsonArray values){
             if(values==null)return;
             for(JsonElement element:values){JsonObject value=element.getAsJsonObject();String name=string(value,"name");
-                if(name.equals("ghi_flow")||name.isBlank())continue;
+                if(name.equals("ghi_flow")||name.isBlank()||(number(value,"flags",0)&VARIABLE_SHADOWED)!=0)continue;
                 result.add(name.equals("ghi_caught")?"caught exception":name,new Value(value));
             }
         }

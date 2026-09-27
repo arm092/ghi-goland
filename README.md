@@ -13,7 +13,7 @@ GoLand 2025.1 bundles a Delve version whose Go version check rejects the Go 1.26
 
 The plugin has a [JetBrains Marketplace listing](https://plugins.jetbrains.com/plugin/34508-ghi). Versions become available there after Marketplace review.
 
-To install directly, download the [v0.1.5 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.5/ghi-goland-0.1.5.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+To install directly, download the [v0.1.6 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.6/ghi-goland-0.1.6.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
 
 ## Editor diagnostics and completion
 
@@ -32,6 +32,16 @@ Plain `enum Direction { North, South, }` cases have the distinct `Direction` typ
 Use **Debug Project** to build with Ghi source metadata and start GoLand's bundled Delve. Line breakpoints, stepping, receiver fields, inherited exception fields and caught exceptions are supported. Variables shadowed by the active binding are omitted, so repeated catch names show the current exception. Breakpoint conditions and expression evaluation are not supported yet; exceptions can be inspected at line breakpoints in throw and catch blocks.
 
 The Request Journal integration check uses the actual HTTP service, a temporary SQLite database, GoLand's XDebugSession and real Delve. Verified with Ghi 0.2.6 on GoLand 2025.1.7.2 and 2026.2.3, it checks service arguments and receiver fields, step over, InvalidInput's inherited message/code and violations, NotFound's inherited message/code and stackTrace, and HTTP responses 201/422/404. It runs through the IntelliJ test framework; it does not verify the native IDE window layout or mouse interactions.
+
+## Test coverage
+
+With **Ghi 0.2.7 or newer**, use **Tools → Ghi → Test with Coverage**. The IDE saves open documents, runs the configured project's tests, and opens **Ghi Coverage** with covered/total statements and per-file percentages. Double-click a file to open it; **Clear coverage** removes the results and editor markers.
+
+Green boxes mark executed statement starts; red boxes mark missed statement starts. Gutter bars are green for fully executed lines, red for missed lines and yellow for lines containing both. Several statements on one line count separately. This is statement coverage, not branch coverage; files without executable statements show `n/a`. Tests, runtime and dependency sources are excluded.
+
+Results belong to the current IDE session. A new run or a source edit clears them. Failed, cancelled, superseded or source-changing runs do not publish results from an earlier profile. The IDE action runs once; use the compiler CLI for `--watch`.
+
+Integration checks exercise the real compiler, successful/failed/cancelled runs, UTF-8 coordinates, per-file counts and editor markers through the IntelliJ test framework. They do not verify native window layout or mouse interactions.
 
 ## Build and test
 

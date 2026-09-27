@@ -11,13 +11,15 @@ GoLand 2025.1 bundles a Delve version whose Go version check rejects the Go 1.26
 
 ## Install
 
-The [Ghi listing on JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34508-ghi) was submitted on September 25, 2026 and is awaiting moderation. It is not yet available for installation from Marketplace. After approval, open **Settings → Plugins → Marketplace**, search for **Ghi**, and install it.
+The plugin has a [JetBrains Marketplace listing](https://plugins.jetbrains.com/plugin/34508-ghi). Versions become available there after Marketplace review.
 
-Until then, download the [v0.1.2 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.2/ghi-goland-0.1.2.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+To install directly, download the [v0.1.3 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.3/ghi-goland-0.1.3.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
 
 ## Editor diagnostics and completion
 
 Saved files use the compiler's project check. For an unsaved buffer, the plugin sends the editor text to `ghi check --stdin --filename` and leaves the file on disk untouched. The buffer must belong to an existing production `.ghi` file in the configured project; new files without a disk path and excluded test files are outside this mode. Diagnostics are discarded if the buffer changes while the check runs.
+
+Editor error messages retain indented continuation lines such as `have` and `want` argument lists. Console links support both `file:line` and `file:line:column` locations, including Windows paths with spaces. Source coordinates and names are supplied by the configured compiler.
 
 Member completion follows explicitly declared types and simple constructor, function call, field, method call, and local initializer chains. It does not infer types for compound expressions or arbitrary control flow.
 

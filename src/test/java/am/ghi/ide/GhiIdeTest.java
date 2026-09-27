@@ -22,13 +22,17 @@ public class GhiIdeTest extends BasePlatformTestCase {
         assertEquals("one",GhiSettings.get(getProject()).getState().arguments);
     }
     public void testConsoleSourceLink() throws Exception {
-        Path source=diskRoot.resolve("main.ghi");Files.writeString(source,"namespace main\nfunc main(){}\n");
+        Path source=Files.createDirectory(diskRoot.resolve("source paths with spaces")).resolve("main.ghi");Files.writeString(source,"namespace main\nfunc main(){}\n");
         var file=com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByNioFile(source);
         assertNotNull(file);
-        String text=file.getPath()+":2:6: error\n";
         var filter=new GhiConsoleFilter(getProject(),Path.of(getProject().getBasePath()));
-        var result=filter.applyFilter(text,text.length()+10);
-        assertNotNull(result);assertEquals(10,result.getHighlightStartOffset());assertNotNull(result.getHyperlinkInfo());
+        for(String text:java.util.List.of(source+":2:6: error\n",file.getPath()+":2: error\n")){
+            var result=filter.applyFilter(text,text.length()+10);
+            assertNotNull(result);assertEquals(10,result.getHighlightStartOffset());assertNotNull(result.getHyperlinkInfo());
+            var descriptor=((com.intellij.execution.filters.OpenFileHyperlinkInfo)result.getHyperlinkInfo()).getDescriptor();
+            assertEquals(file,descriptor.getFile());
+            assertEquals("namespace main\n".length()+(text.contains(":2:6:")?5:0),descriptor.getOffset());
+        }
     }
     public void testRealCompilerCommand() throws Exception {
         String compiler=System.getenv("GHI_TEST_COMPILER");
@@ -111,6 +115,41 @@ public class GhiIdeTest extends BasePlatformTestCase {
             assertEquals(saved,Files.readString(path));
             assertTrue(annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,saved,0)).isEmpty());
         }finally{settings.executable=previousCompiler;settings.directory=previousDirectory;}
+    }
+    public void testCompilerDiagnosticLocationsNamesAndContinuations() throws Exception {
+        String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
+        record Case(String source,int line,int column,String message){}
+        var cases=java.util.List.of(
+            new Case("namespace main\nclass Box[T any] { constructor(value T){} }\nfunc main(){new Box[int, string](1)}\n",2,25,"got 2 type arguments but want 1"),
+            new Case("namespace main\nclass Box { constructor(value int){} }\nfunc main(){new Box()}\n",2,20,"not enough arguments in call to Box\nhave ()\nwant (int)"),
+            new Case("namespace main\nclass Box { public func add(value int){} }\nfunc main(){b := new Box(); b.add()}\n",2,34,"not enough arguments in call to b.add\nhave ()\nwant (int)"),
+            new Case("namespace main\nclass Box extends Missing {}\nfunc main(){}\n",1,0,"class Box: unknown parent class Missing"),
+            new Case("namespace main\nclass Box implements Missing {}\nfunc main(){}\n",1,0,"class Box: unknown interface Missing"),
+            new Case("namespace main\nclass Box { public override func missing(){} }\nfunc main(){}\n",1,0,"Box.missing: override requires an accessible parent method"),
+            new Case("namespace main\nclass Base[T any] {}\nclass Child extends Base[int, string] {}\nfunc main(){}\n",2,0,"parent Base expects 1 type arguments, got 2")
+        );
+        Path root=Files.createDirectory(diskRoot.resolve("compiler diagnostic paths with spaces"));Path path=root.resolve("main.ghi");
+        var annotator=new GhiExternalAnnotator();String saved="namespace main\nfunc main(){}\n";
+        for(var fixture:cases){
+            Files.writeString(path,fixture.source());
+            var problems=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,fixture.source(),42));
+            assertEquals(fixture.source(),1,problems.size());
+            assertEquals(fixture.line(),problems.getFirst().line());assertEquals(fixture.column(),problems.getFirst().column());
+            assertEquals(fixture.message(),problems.getFirst().message());
+            Files.writeString(path,saved);
+            assertEquals(problems,annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,fixture.source(),42,true)));
+            assertEquals(saved,Files.readString(path));
+        }
+        Files.createDirectory(root.resolve("library"));
+        Files.writeString(root.resolve("library/box.ghi"),"namespace app.box\nclass Box[T any] { constructor(value T){} }\n");
+        String aliased="namespace main\nimport app.box.Box as Alias\nfunc main(){new Alias[int]()}\n";
+        Files.writeString(path,aliased);
+        var problems=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,aliased,42));
+        assertEquals(1,problems.size());assertEquals(2,problems.getFirst().line());assertEquals(27,problems.getFirst().column());
+        assertEquals("not enough arguments in call to Alias[int]\nhave ()\nwant (int)",problems.getFirst().message());
+        Files.writeString(path,saved);
+        assertEquals(problems,annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,aliased,42,true)));
+        assertEquals(saved,Files.readString(path));
     }
     public void testImportedNamespaceAndIncompleteMemberCompletion(){
         var library=myFixture.addFileToProject("users/person.ghi","namespace app.users\nclass Person { public name string }\nfunc create() Person { return new Person() }\n");

@@ -53,10 +53,22 @@ public final class GhiExternalAnnotator extends ExternalAnnotator<GhiExternalAnn
     }
     static List<Problem> parse(String output,Input input){
         List<Problem> problems=new ArrayList<>();
+        int current=-1;
         for(String line:output.split("\\R")){
-            var diagnostic=GhiDiagnostic.parse(line);if(diagnostic==null)continue;
+            var diagnostic=GhiDiagnostic.parse(line);
+            if(diagnostic==null){
+                if(current>=0&&!line.isBlank()&&Character.isWhitespace(line.charAt(0))){
+                    Problem previous=problems.get(current);
+                    problems.set(current,new Problem(previous.line,previous.column,previous.message+"\n"+line.trim(),previous.stamp));
+                }else current=-1;
+                continue;
+            }
+            current=-1;
             try{Path path=Path.of(diagnostic.path());if(!path.isAbsolute())path=input.directory.resolve(path);
-                if(path.toAbsolutePath().normalize().equals(input.file))problems.add(new Problem(diagnostic.line(),diagnostic.column(),line.substring(diagnostic.end()+1).trim(),input.stamp));
+                if(path.toAbsolutePath().normalize().equals(input.file)){
+                    problems.add(new Problem(diagnostic.line(),diagnostic.column(),line.substring(diagnostic.end()+1).trim(),input.stamp));
+                    current=problems.size()-1;
+                }
             }catch(InvalidPathException ignored){}
         }
         return problems;

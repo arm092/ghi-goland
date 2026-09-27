@@ -81,11 +81,11 @@ public class GhiCoreTest {
         Path root=Path.of(System.getProperty("java.io.tmpdir"),"ghi project with spaces").toAbsolutePath();
         Path file=root.resolve("main.ghi");
         var input=new GhiExternalAnnotator.Input("ghi",root,file,"",42);
-        var problems=GhiExternalAnnotator.parse(file+":3:21: not enough arguments in call to Box\r\n\thave ()\r\n\twant (int)\r\n"
+        var problems=GhiExternalAnnotator.parse(file+":3:21: not enough arguments in call to Box\r\n3 | new Box()\r\n  | ^~~~~~~~~\r\n\thave ()\r\n\twant (int)\r\n  = expected: int; received: no arguments\r\n"
             +root.resolve("other.ghi")+":4: unrelated\n\thave (string)\n\twant (bool)\n"
             +file+":5: unknown parent\nCompiler summary\n\tseparate output\n",input);
         assertEquals(2,problems.size());
-        assertEquals("not enough arguments in call to Box\nhave ()\nwant (int)",problems.getFirst().message());
+        assertEquals("not enough arguments in call to Box\nhave ()\nwant (int)\n= expected: int; received: no arguments",problems.getFirst().message());
         assertEquals(2,problems.getFirst().line());assertEquals(20,problems.getFirst().column());
         assertEquals("unknown parent",problems.get(1).message());assertEquals(0,problems.get(1).column());
     }

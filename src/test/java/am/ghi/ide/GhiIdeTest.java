@@ -151,6 +151,20 @@ public class GhiIdeTest extends BasePlatformTestCase {
         assertEquals(problems,annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,aliased,42,true)));
         assertEquals(saved,Files.readString(path));
     }
+    public void testRichCompilerDiagnosticsAndPlainOverlay() throws Exception {
+        String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
+        Path root=Files.createDirectory(diskRoot.resolve("rich diagnostics with spaces"));Path path=root.resolve("main.ghi");
+        String source="namespace main\nfunc main(){var value int = \"wrong\"; println(value)}\n";
+        String message="cannot use \"wrong\" (untyped string constant) as int value in variable declaration";
+        Files.writeString(path,source);var annotator=new GhiExternalAnnotator();
+        var problems=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,source,42));
+        assertEquals(1,problems.size());assertEquals(1,problems.getFirst().line());assertEquals(28,problems.getFirst().column());
+        assertEquals(message+"\n= expected: int; received: untyped string constant",problems.getFirst().message());
+        String saved="namespace main\nfunc main(){}\n";Files.writeString(path,saved);
+        var overlay=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,source,42,true));
+        assertEquals(java.util.List.of(new GhiExternalAnnotator.Problem(1,28,message,42)),overlay);
+        assertEquals(saved,Files.readString(path));
+    }
     public void testImportedNamespaceAndIncompleteMemberCompletion(){
         var library=myFixture.addFileToProject("users/person.ghi","namespace app.users\nclass Person { public name string }\nfunc create() Person { return new Person() }\n");
         var file=myFixture.configureByText("imports.ghi","namespace main\nimport app.users as users\nfunc main(){ person := new users.Person(); person.<caret>\n");

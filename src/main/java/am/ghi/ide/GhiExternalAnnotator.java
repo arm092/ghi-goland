@@ -9,9 +9,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.NotNull;
 /** Runs the read-only compiler check in the external annotator background phase. */
 public final class GhiExternalAnnotator extends ExternalAnnotator<GhiExternalAnnotator.Input,List<GhiExternalAnnotator.Problem>> {
+    private static final Pattern SOURCE_CONTEXT=Pattern.compile("^\\s*(?:\\d+\\s*)?\\|.*$");
     record Input(String executable,Path directory,Path file,String text,long stamp,boolean overlay) {
         Input(String executable,Path directory,Path file,String text,long stamp){this(executable,directory,file,text,stamp,false);}
     }
@@ -55,6 +57,7 @@ public final class GhiExternalAnnotator extends ExternalAnnotator<GhiExternalAnn
         List<Problem> problems=new ArrayList<>();
         int current=-1;
         for(String line:output.split("\\R")){
+            if(SOURCE_CONTEXT.matcher(line).matches())continue;
             var diagnostic=GhiDiagnostic.parse(line);
             if(diagnostic==null){
                 if(current>=0&&!line.isBlank()&&Character.isWhitespace(line.charAt(0))){

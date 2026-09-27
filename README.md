@@ -21,6 +21,8 @@ Saved files use the compiler's project check. For an unsaved buffer, the plugin 
 
 Editor error messages retain indented continuation lines such as `have` and `want` argument lists. Console links support both `file:line` and `file:line:column` locations, including Windows paths with spaces. Source coordinates and names are supplied by the configured compiler.
 
+Development source after plugin v0.1.3 handles the richer CLI diagnostics introduced in Ghi development source after v0.2.5. Saved-file editor messages omit source excerpts and carets while retaining type mismatch explanations. The console displays the full compiler output. Unsaved-buffer checks use the compiler's plain overlay output.
+
 Member completion follows explicitly declared types and simple constructor, function call, field, method call, and local initializer chains. It does not infer types for compound expressions or arbitrary control flow.
 
 Plain `enum Direction { North, South, }` cases have the distinct `Direction` type. Explicit `string`, `int`, or `bool` backed enum cases use that backing type. The plugin highlights enum declarations and cases and supports case navigation and completion; the compiler checks invalid declarations and assignments to immutable cases.

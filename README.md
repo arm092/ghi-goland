@@ -13,7 +13,7 @@ GoLand 2025.1 bundles a Delve version whose Go version check rejects the Go 1.26
 
 The plugin has a [JetBrains Marketplace listing](https://plugins.jetbrains.com/plugin/34508-ghi). Versions become available there after Marketplace review.
 
-To install directly, download the [v0.1.3 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.3/ghi-goland-0.1.3.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+To install directly, download the [v0.1.4 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.4/ghi-goland-0.1.4.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
 
 ## Editor diagnostics and completion
 
@@ -21,7 +21,7 @@ Saved files use the compiler's project check. For an unsaved buffer, the plugin 
 
 Editor error messages retain indented continuation lines such as `have` and `want` argument lists. Console links support both `file:line` and `file:line:column` locations, including Windows paths with spaces. Source coordinates and names are supplied by the configured compiler.
 
-Development source after plugin v0.1.3 handles the richer CLI diagnostics introduced in Ghi development source after v0.2.5. Saved-file editor messages omit source excerpts and carets while retaining type mismatch explanations. The console displays the full compiler output. Unsaved-buffer checks use the compiler's plain overlay output.
+Plugin v0.1.4 handles the richer CLI diagnostics introduced in Ghi v0.2.6. Saved-file editor messages omit source excerpts and carets while retaining type mismatch explanations. The console displays the full compiler output. Unsaved-buffer checks use the compiler's plain overlay output.
 
 Member completion follows explicitly declared types and simple constructor, function call, field, method call, and local initializer chains. It does not infer types for compound expressions or arbitrary control flow.
 

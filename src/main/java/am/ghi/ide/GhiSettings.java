@@ -7,6 +7,10 @@ public final class GhiSettings implements PersistentStateComponent<GhiSettings.S
         public String executable="";
         public String directory="";
         public String arguments="";
+        public String benchmarkPattern=".";
+        public String benchmarkTime="1s";
+        public String benchmarkCount="1";
+        public boolean benchmarkMemory=true;
     }
     private State state=new State();
     public State getState(){return state;}

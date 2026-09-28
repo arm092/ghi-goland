@@ -13,7 +13,7 @@ GoLand 2025.1 bundles a Delve version whose Go version check rejects the Go 1.26
 
 The plugin has a [JetBrains Marketplace listing](https://plugins.jetbrains.com/plugin/34508-ghi). Versions become available there after Marketplace review.
 
-To install directly, download the [v0.1.6 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.6/ghi-goland-0.1.6.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+To install directly, download the [v0.1.7 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.7/ghi-goland-0.1.7.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
 
 ## Editor diagnostics and completion
 
@@ -42,6 +42,12 @@ Green boxes mark executed statement starts; red boxes mark missed statement star
 Results belong to the current IDE session. A new run or a source edit clears them. Failed, cancelled, superseded or source-changing runs do not publish results from an earlier profile. The IDE action runs once; use the compiler CLI for `--watch`.
 
 Integration checks exercise the real compiler, successful/failed/cancelled runs, UTF-8 coordinates, per-file counts and editor markers through the IntelliJ test framework. They do not verify native window layout or mouse interactions.
+
+## Race detection and benchmarks
+
+With **Ghi 0.2.8 or newer**, use **Tools → Ghi → Test with Race Detection** to run `ghi test --race`, or **Tools → Ghi → Run Benchmarks** for native Go benchmark output. Configure the benchmark name regex, duration or iteration count (for example `1s` or `100x`), positive repetition count and optional allocation reporting in **Settings → Languages & Frameworks → Ghi**. The benchmark command passes `--bench`, `--benchtime`, `--count` and, when enabled, `--benchmem`. Each command opens a stoppable IDE console. Invalid settings are rejected before the process starts.
+
+Race detection requires a Go installation with CGO and a supported C compiler. The plugin reports the compiler's error in the console when that toolchain is unavailable. Benchmark and race runs are separate from the coverage action; running them does not publish a coverage profile.
 
 ## Build and test
 

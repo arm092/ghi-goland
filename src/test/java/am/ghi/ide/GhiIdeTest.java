@@ -116,6 +116,68 @@ public class GhiIdeTest extends BasePlatformTestCase {
             assertTrue(annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,saved,0)).isEmpty());
         }finally{settings.executable=previousCompiler;settings.directory=previousDirectory;}
     }
+    public void testTernaryAndNullableTokensKeepBranchNavigation() {
+        String source="namespace main\n"
+            +"class User { public name string; constructor(name string){this.name=name} public func label(prefix string) string {return prefix+this.name} }\n"
+            +"func choose(flag bool, nested bool, left ?User, right ?User) string {\n"
+            +" return flag ? left.label(\"? :\") : (nested ? right.label(\"R\") : \"none\") // ? :\n"
+            +"}\n";
+        var file=myFixture.configureByText("ternary-nullable.ghi",source);
+        var lexer=new GhiLexer();lexer.start(source);
+        int questions=0,colons=0;
+        while(lexer.getTokenType()!=null){
+            assertNotSame("Ternary source produced bad token",com.intellij.psi.TokenType.BAD_CHARACTER,lexer.getTokenType());
+            String token=source.substring(lexer.getTokenStart(),lexer.getTokenEnd());
+            if(token.equals("?")){questions++;assertSame(GhiLexer.OPERATOR,lexer.getTokenType());}
+            if(token.equals(":")){colons++;assertSame(GhiLexer.OPERATOR,lexer.getTokenType());}
+            lexer.advance();
+        }
+        assertEquals(4,questions);assertEquals(2,colons);
+        var highlighted=new GhiHighlightingLexer();highlighted.start(source,0,source.length(),0);
+        int highlightedQuestions=0;
+        while(highlighted.getTokenType()!=null){
+            String token=source.substring(highlighted.getTokenStart(),highlighted.getTokenEnd());
+            if(token.equals("?")){highlightedQuestions++;assertSame(GhiLexer.OPERATOR,highlighted.getTokenType());}
+            if(highlighted.getTokenStart()==source.indexOf("?User")+1)assertSame(GhiHighlightingLexer.TYPE,highlighted.getTokenType());
+            highlighted.advance();
+        }
+        assertEquals(4,highlightedQuestions);
+        var model=GhiSymbols.forFile(file);
+        for(String reference:java.util.List.of("flag ?","nested ?","left.label","right.label")){
+            int offset=source.indexOf(reference);assertTrue(reference,offset>=0);
+            assertNotNull("Unresolved ternary branch reference: "+reference,model.resolve(file,offset));
+        }
+        assertEquals("User",model.resolve(file,source.indexOf("?User")+1).getText());
+        for(String call:java.util.List.of("left.label(\"? :\")","right.label(\"R\")")){
+            int open=source.indexOf(call)+call.indexOf('(');
+            var hint=model.callAt(file,open+1);assertNotNull(call,hint);
+            assertEquals("label",hint.symbol().name);
+            assertEquals(java.util.List.of("prefix string"),hint.symbol().parameters);
+        }
+    }
+    public void testTernaryCompilerFormattingAndDiagnostics() throws Exception {
+        String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
+        var versionProcess=new ProcessBuilder(compiler,"--version").redirectErrorStream(true).start();
+        assertTrue(versionProcess.waitFor(10,TimeUnit.SECONDS));
+        String version=new String(versionProcess.getInputStream().readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+        if(!version.matches("(?s).*v0\\.2\\.(?:1[0-9]|[2-9][0-9])(?:\\D.*)?"))return;
+        Path root=Files.createDirectory(diskRoot.resolve("ternary-compiler"));Path path=root.resolve("main.ghi");
+        String source="namespace main\nclass User { public name string; constructor(name string){this.name=name} }\n"
+            +"func main(){var maybe ?User = new User(\"A\" ); println(maybe != nil ? maybe.name : \"none\" ); println(false ? \"x\" : (true ? \"y\" : \"z\" ))}\n";
+        Files.writeString(path,source);
+        var input=new GhiExternalAnnotator.Input(compiler,root,path,source,0);
+        var annotator=new GhiExternalAnnotator();var validProblems=annotator.doAnnotate(input);
+        assertTrue(validProblems.toString(),validProblems.isEmpty());
+        String formatted=GhiFormattingService.format(compiler,source,path.toString(),new java.util.concurrent.atomic.AtomicReference<>());
+        assertTrue(formatted,formatted.contains("maybe != nil ? maybe.name : \"none\""));
+        assertTrue(formatted,formatted.contains("maybe ?User"));
+        assertTrue(formatted,formatted.contains("false ? \"x\" : (true ? \"y\" : \"z\")"));
+        String invalid="namespace main\nfunc main(){println(true ? false ? 1 : 2 : 3)}\n";
+        var problems=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,invalid,0,true));
+        assertFalse("Missing nested-ternary diagnostic",problems.isEmpty());
+        assertEquals(1,problems.getFirst().line());
+        assertTrue(problems.getFirst().message(),problems.getFirst().message().contains("parentheses"));
+    }
     public void testCompilerDiagnosticLocationsNamesAndContinuations() throws Exception {
         String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
         record Case(String source,int line,int column,String message){}

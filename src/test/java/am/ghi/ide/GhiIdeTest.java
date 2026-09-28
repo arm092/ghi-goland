@@ -33,6 +33,17 @@ public class GhiIdeTest extends BasePlatformTestCase {
             assertEquals(file,descriptor.getFile());
             assertEquals("namespace main\n".length()+(text.contains(":2:6:")?5:0),descriptor.getOffset());
         }
+        String unicode="namespace main\nfunc main(){println(\"Ա😀\"); missing()}\n";
+        Files.writeString(source,unicode);
+        com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(false,false,false,file);
+        String sourceLine=unicode.lines().skip(1).findFirst().orElseThrow();
+        int expected=sourceLine.indexOf("missing");
+        int byteColumn=sourceLine.substring(0,expected).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        String diagnostic=file.getPath()+":2:"+(byteColumn+1)+": unknown name\n";
+        var result=filter.applyFilter(diagnostic,diagnostic.length());
+        assertNotNull(result);
+        var descriptor=((com.intellij.execution.filters.OpenFileHyperlinkInfo)result.getHyperlinkInfo()).getDescriptor();
+        assertEquals("namespace main\n".length()+expected,descriptor.getOffset());
     }
     public void testRealCompilerCommand() throws Exception {
         String compiler=System.getenv("GHI_TEST_COMPILER");
@@ -89,6 +100,21 @@ public class GhiIdeTest extends BasePlatformTestCase {
         var holder=(com.intellij.lang.annotation.AnnotationHolder)java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),new Class[]{com.intellij.lang.annotation.AnnotationHolder.class},(proxy,method,args)->{fail("Stale diagnostics must not create editor annotations");return null;});
         annotator.apply(edited,java.util.List.of(new GhiExternalAnnotator.Problem(1,0,"old",document.getModificationStamp()-1)),holder);
         assertTrue(GhiExternalAnnotator.parse(root.resolve("else.ghi")+":2:3: other",input).isEmpty());
+    }
+    public void testCompilerByteColumnsMapToEditorCharacters(){
+        myFixture.configureByText("unicode.ghi","namespace main\nfunc main(){println(\"Ա😀\"); missing()}\n");
+        var document=myFixture.getEditor().getDocument();
+        int lineStart=document.getLineStartOffset(1);
+        String line="func main(){println(\"Ա😀\"); missing()}";
+        int target=line.indexOf("missing");
+        int byteColumn=line.substring(0,target).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        assertEquals(lineStart+target,GhiExternalAnnotator.editorOffset(document,1,byteColumn));
+        assertEquals(lineStart+line.indexOf("😀"),GhiExternalAnnotator.editorOffset(document,1,line.substring(0,line.indexOf("😀")).getBytes(java.nio.charset.StandardCharsets.UTF_8).length+1));
+        assertEquals(document.getLineEndOffset(1),GhiExternalAnnotator.editorOffset(document,1,999));
+        String nested="ternary nested expressions require parentheses";
+        assertTrue(GhiExternalAnnotator.editorMessage(nested).contains("Parenthesize the nested expression"));
+        String rich=nested+"\n= hint: Compiler guidance";
+        assertEquals(rich,GhiExternalAnnotator.editorMessage(rich));
     }
     public void testUnsavedCompilerDiagnosticsUseEditorSnapshot() throws Exception {
         String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
@@ -177,6 +203,16 @@ public class GhiIdeTest extends BasePlatformTestCase {
         assertFalse("Missing nested-ternary diagnostic",problems.isEmpty());
         assertEquals(1,problems.getFirst().line());
         assertTrue(problems.getFirst().message(),problems.getFirst().message().contains("parentheses"));
+        String unicode="namespace main\nfunc main(){println(\"Ա😀\"); println(true ? false ? 1 : 2 : 3)}\n";
+        Files.writeString(path,unicode);
+        var unicodeProblems=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,unicode,0));
+        assertEquals(1,unicodeProblems.size());
+        String sourceLine=unicode.lines().skip(1).findFirst().orElseThrow();
+        int question=sourceLine.indexOf('?');
+        assertEquals(sourceLine.substring(0,question).getBytes(java.nio.charset.StandardCharsets.UTF_8).length,unicodeProblems.getFirst().column());
+        myFixture.configureByText("unicode-ternary.ghi",unicode);
+        assertEquals(myFixture.getEditor().getDocument().getLineStartOffset(1)+question,
+            GhiExternalAnnotator.editorOffset(myFixture.getEditor().getDocument(),1,unicodeProblems.getFirst().column()));
     }
     public void testCompilerDiagnosticLocationsNamesAndContinuations() throws Exception {
         String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
@@ -197,9 +233,15 @@ public class GhiIdeTest extends BasePlatformTestCase {
             var problems=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,fixture.source(),42));
             assertEquals(fixture.source(),1,problems.size());
             assertEquals(fixture.line(),problems.getFirst().line());assertEquals(fixture.column(),problems.getFirst().column());
-            assertEquals(fixture.message(),problems.getFirst().message());
+            String editorMessage=problems.getFirst().message();
+            assertTrue(editorMessage,editorMessage.startsWith(fixture.message()));
+            assertTrue(editorMessage,editorMessage.equals(fixture.message())||editorMessage.substring(fixture.message().length()).startsWith("\n= hint: "));
             Files.writeString(path,saved);
-            assertEquals(problems,annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,fixture.source(),42,true)));
+            var overlay=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,fixture.source(),42,true));
+            assertEquals(1,overlay.size());
+            assertEquals(fixture.message(),overlay.getFirst().message());
+            assertEquals(problems.getFirst().line(),overlay.getFirst().line());
+            assertEquals(problems.getFirst().column(),overlay.getFirst().column());
             assertEquals(saved,Files.readString(path));
         }
         Files.createDirectory(root.resolve("library"));
@@ -208,9 +250,11 @@ public class GhiIdeTest extends BasePlatformTestCase {
         Files.writeString(path,aliased);
         var problems=annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,aliased,42));
         assertEquals(1,problems.size());assertEquals(2,problems.getFirst().line());assertEquals(27,problems.getFirst().column());
-        assertEquals("not enough arguments in call to Alias[int]\nhave ()\nwant (int)",problems.getFirst().message());
+        String expected="not enough arguments in call to Alias[int]\nhave ()\nwant (int)";
+        assertTrue(problems.getFirst().message(),problems.getFirst().message().startsWith(expected));
+        assertTrue(problems.getFirst().message(),problems.getFirst().message().equals(expected)||problems.getFirst().message().substring(expected.length()).startsWith("\n= hint: "));
         Files.writeString(path,saved);
-        assertEquals(problems,annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,aliased,42,true)));
+        assertEquals(java.util.List.of(new GhiExternalAnnotator.Problem(2,27,expected,42)),annotator.doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,aliased,42,true)));
         assertEquals(saved,Files.readString(path));
     }
     public void testRichCompilerDiagnosticsAndPlainOverlay() throws Exception {

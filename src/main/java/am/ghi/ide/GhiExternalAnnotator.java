@@ -78,10 +78,26 @@ public final class GhiExternalAnnotator extends ExternalAnnotator<GhiExternalAnn
     }
     @Override public void apply(@NotNull PsiFile file,List<Problem> problems,@NotNull AnnotationHolder holder){
         var document=file.getViewProvider().getDocument();if(document==null||problems==null)return;
-        for(Problem problem:problems){if(problem.stamp!=document.getModificationStamp()||problem.line>=document.getLineCount())continue;
-            int start=Math.min(document.getLineStartOffset(problem.line)+problem.column,document.getLineEndOffset(problem.line));
+        for(Problem problem:problems){if(problem.stamp!=document.getModificationStamp()||problem.line<0||problem.line>=document.getLineCount())continue;
+            int start=editorOffset(document,problem.line,problem.column);
             int end=Math.min(start+1,document.getTextLength());if(start==end&&start>0)start--;
-            holder.newAnnotation(HighlightSeverity.ERROR,problem.message).range(new TextRange(start,end)).create();
+            holder.newAnnotation(HighlightSeverity.ERROR,editorMessage(problem.message)).range(new TextRange(start,end)).create();
         }
+    }
+    static String editorMessage(String message){
+        if(message.startsWith("ternary nested expressions require parentheses")&&!message.contains("\n= hint:"))
+            return message+"\n= hint: Parenthesize the nested expression to make its branch explicit.";
+        return message;
+    }
+    static int editorOffset(com.intellij.openapi.editor.Document document,int line,int byteColumn){
+        int start=document.getLineStartOffset(line),end=document.getLineEndOffset(line);
+        CharSequence chars=document.getCharsSequence();int offset=start,bytes=0;
+        while(offset<end){
+            int codePoint=Character.codePointAt(chars,offset);
+            int width=codePoint<=0x7f?1:codePoint<=0x7ff?2:codePoint<=0xffff?3:4;
+            if(bytes+width>byteColumn)break;
+            bytes+=width;offset+=Character.charCount(codePoint);
+        }
+        return offset;
     }
 }

@@ -1,6 +1,7 @@
 package am.ghi.ide;
 import com.intellij.execution.filters.*;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import java.nio.file.*;
 final class GhiConsoleFilter implements Filter {
@@ -15,9 +16,13 @@ final class GhiConsoleFilter implements Filter {
             if(!path.isAbsolute())path=directory.resolve(path);
             var file=LocalFileSystem.getInstance().findFileByPath(path.normalize().toString().replace('\\','/'));
             if(file==null)return null;
+            int column=diagnostic.column();
+            var document=FileDocumentManager.getInstance().getDocument(file);
+            if(document!=null&&diagnostic.line()<document.getLineCount())
+                column=GhiExternalAnnotator.editorOffset(document,diagnostic.line(),column)-document.getLineStartOffset(diagnostic.line());
             int offset=entireLength-line.length();
             return new Result(offset+diagnostic.start(),offset+diagnostic.end(),
-                new OpenFileHyperlinkInfo(project,file,diagnostic.line(),diagnostic.column()));
+                new OpenFileHyperlinkInfo(project,file,diagnostic.line(),column));
         }catch(InvalidPathException ignored){return null;}
     }
 }

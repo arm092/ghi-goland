@@ -13,15 +13,17 @@ GoLand 2025.1 bundles a Delve version whose Go version check rejects the Go 1.26
 
 The plugin has a [JetBrains Marketplace listing](https://plugins.jetbrains.com/plugin/34508-ghi). Versions become available there after Marketplace review.
 
-To install directly, download the [v0.1.7 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.7/ghi-goland-0.1.7.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+To install directly, download the [v0.1.8 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.8/ghi-goland-0.1.8.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
 
 ## Editor diagnostics and completion
 
 Saved files use the compiler's project check. For an unsaved buffer, the plugin sends the editor text to `ghi check --stdin --filename` and leaves the file on disk untouched. The buffer must belong to an existing production `.ghi` file in the configured project; new files without a disk path and excluded test files are outside this mode. Diagnostics are discarded if the buffer changes while the check runs.
 
-Editor error messages retain indented continuation lines such as `have` and `want` argument lists. Console links support both `file:line` and `file:line:column` locations, including Windows paths with spaces. Source coordinates and names are supplied by the configured compiler.
+Editor error messages retain indented continuation lines such as `have` and `want` argument lists. Console links support both `file:line` and `file:line:column` locations, including Windows paths with spaces. The plugin converts the compiler's UTF-8 byte columns to editor positions, so diagnostics and console links point to the right place after Unicode text. Source coordinates and names are supplied by the configured compiler.
 
 Plugin v0.1.4 handles the richer CLI diagnostics introduced in Ghi v0.2.6. Saved-file editor messages omit source excerpts and carets while retaining type mismatch explanations. The console displays the full compiler output. Unsaved-buffer checks use the compiler's plain overlay output.
+
+With Ghi v0.2.10+, ternary expressions receive compiler diagnostics in the editor. For an unparenthesized nested ternary, the plugin also shows a parentheses hint in unsaved buffers; saved-file checks retain the compiler's richer hint. The IDE does not choose which branch to parenthesize because that would change the expression's meaning.
 
 Member completion follows explicitly declared types and simple constructor, function call, field, method call, and local initializer chains. It does not infer types for compound expressions or arbitrary control flow.
 

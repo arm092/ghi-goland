@@ -13,7 +13,7 @@ GoLand 2025.1 bundles a Delve version whose Go version check rejects the Go 1.26
 
 The plugin has a [JetBrains Marketplace listing](https://plugins.jetbrains.com/plugin/34508-ghi). Versions become available there after Marketplace review.
 
-To install directly, download the [v0.1.8 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.8/ghi-goland-0.1.8.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+To install directly, download the [v0.1.9 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.9/ghi-goland-0.1.9.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
 
 ## Editor diagnostics and completion
 
@@ -29,7 +29,7 @@ Member completion follows explicitly declared types and simple constructor, func
 
 ### Expression type hover
 
-The unreleased development checkout adds Quick Documentation for checked expression types with a Ghi compiler supporting `analyze --json --types` (introduced in 0.2.12). The linked v0.1.8 ZIP does not include this feature. Enable **Show quick documentation on hover** in GoLand to see types on mouse hover. The type comes from the compiler's original-source byte ranges; the plugin maps them to the current editor text. It shows the narrowest checked expression under the cursor and leaves unsupported or ambiguous expressions without a type.
+Plugin v0.1.9 adds Quick Documentation for checked expression types with **Ghi 0.2.12 or newer**. Enable **Show quick documentation on hover** in GoLand to see types on mouse hover. The type comes from the compiler's original-source byte ranges; the plugin maps them to the current editor text. It shows the narrowest checked expression under the cursor and leaves unsupported or ambiguous expressions without a type.
 
 Type analysis runs in the background with a timeout and requires the configured project's Go toolchain and dependencies. An unsaved edit to the current existing production `.ghi` file is sent in memory without modifying the disk file. If another file in the project is unsaved, type hover is suppressed because the compiler would read an older version of that file from disk. Failed or outdated analysis does not produce a hover result. The type index is conservative: declarations, rewritten constructs and some first-line expressions may have no entry.
 

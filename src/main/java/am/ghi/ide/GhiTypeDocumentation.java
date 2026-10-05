@@ -9,16 +9,15 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.platform.backend.documentation.*;
 import com.intellij.platform.backend.presentation.TargetPresentation;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.util.PsiModificationTracker;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
@@ -69,14 +68,12 @@ public final class GhiTypeDocumentation implements DocumentationTargetProvider {
         final Document document;
         final Path path,directory;
         final String executable,text,sha;
-        final long documentStamp,psiStamp,vfsStamp;
-        final Map<Document,Long> unsaved;
+        final long documentStamp;
         private Snapshot(PsiFile file,Document document,Path path,Path directory,String executable,
-                         String text,long psiStamp,long vfsStamp,Map<Document,Long> unsaved){
+                         String text){
             this.file=file;this.project=file.getProject();this.document=document;this.path=path;
             this.directory=directory;this.executable=executable;this.text=text;this.sha=sha(text);
-            this.documentStamp=document.getModificationStamp();this.psiStamp=psiStamp;this.vfsStamp=vfsStamp;
-            this.unsaved=unsaved;
+            this.documentStamp=document.getModificationStamp();
         }
         static Snapshot capture(PsiFile file){
             VirtualFile virtual=file.getVirtualFile();
@@ -90,8 +87,7 @@ public final class GhiTypeDocumentation implements DocumentationTargetProvider {
                 if(!path.startsWith(directory)||path.startsWith(directory.resolve("tests"))||!Files.isDirectory(directory))return null;
                 if(otherUnsaved(directory,document))return null;
                 return new Snapshot(file,document,path,directory,GhiCommand.executable(settings.executable),
-                    document.getText(),PsiModificationTracker.getInstance(file.getProject()).getModificationCount(),
-                    VirtualFileManager.getInstance().getModificationCount(),unsaved());
+                    document.getText());
             }catch(IllegalArgumentException|NullPointerException error){return null;}
         }
         boolean isCurrent(){
@@ -101,9 +97,7 @@ public final class GhiTypeDocumentation implements DocumentationTargetProvider {
         }
         private boolean currentState(){
             if(project.isDisposed()||!file.isValid()||document.getModificationStamp()!=documentStamp
-                ||PsiModificationTracker.getInstance(project).getModificationCount()!=psiStamp
-                ||VirtualFileManager.getInstance().getModificationCount()!=vfsStamp
-                ||!unsaved.equals(unsaved())||otherUnsaved(directory,document))return false;
+                ||otherUnsaved(directory,document))return false;
             try{
                 var settings=GhiSettings.get(project).getState();
                 return path.equals(Path.of(file.getVirtualFile().getPath()).toAbsolutePath().normalize())
@@ -113,12 +107,6 @@ public final class GhiTypeDocumentation implements DocumentationTargetProvider {
         }
     }
 
-    private static Map<Document,Long> unsaved(){
-        Map<Document,Long> result=new IdentityHashMap<>();
-        for(Document document:FileDocumentManager.getInstance().getUnsavedDocuments())
-            result.put(document,document.getModificationStamp());
-        return result;
-    }
     private static boolean otherUnsaved(Path directory,Document current){
         var manager=FileDocumentManager.getInstance();
         for(Document document:manager.getUnsavedDocuments()){
@@ -135,12 +123,34 @@ public final class GhiTypeDocumentation implements DocumentationTargetProvider {
     }
     static String analyze(Snapshot snapshot,int editorOffset){
         if(!snapshot.isCurrent())return null;
+        Map<String,FileStamp> projectState=projectState(snapshot.directory);
+        if(projectState==null||!snapshot.isCurrent())return null;
         String json=runProcess(snapshot.project,new ProcessBuilder(snapshot.executable,"analyze","--json","--types","--project",snapshot.directory.toString(),
             "--stdin","--filename",snapshot.path.toString()).directory(snapshot.directory.toFile()),
             snapshot.text.getBytes(StandardCharsets.UTF_8),snapshot::isCurrent,TIMEOUT_NANOS);
         if(json==null)return null;
         String type=typeAt(json,snapshot.path,snapshot.sha,snapshot.text,editorOffset);
-        return snapshot.isCurrent()?type:null;
+        return snapshot.isCurrent()&&projectState.equals(projectState(snapshot.directory))?type:null;
+    }
+    private record FileStamp(long size,long modifiedNanos) {}
+    private static Map<String,FileStamp> projectState(Path directory){
+        Map<String,FileStamp> result=new TreeMap<>();
+        try{
+            Files.walkFileTree(directory,new SimpleFileVisitor<>(){
+                @Override public FileVisitResult preVisitDirectory(Path path,BasicFileAttributes attributes){
+                    if(!path.equals(directory)&&Set.of(".git",".work","build","bin","node_modules").contains(path.getFileName().toString()))
+                        return FileVisitResult.SKIP_SUBTREE;
+                    return FileVisitResult.CONTINUE;
+                }
+                @Override public FileVisitResult visitFile(Path path,BasicFileAttributes attributes){
+                    String name=path.getFileName().toString();
+                    if(name.endsWith(".ghi")||name.endsWith(".go")||Set.of("mojave.lock","mojave.json","go.mod","go.sum","go.work","go.work.sum").contains(name))
+                        result.put(directory.relativize(path).toString(),new FileStamp(attributes.size(),attributes.lastModifiedTime().to(TimeUnit.NANOSECONDS)));
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+            return result;
+        }catch(IOException error){return null;}
     }
     static String runProcess(ProcessBuilder builder,byte[] input,BooleanSupplier current,long timeoutNanos){
         return runProcess(null,builder,input,current,timeoutNanos);

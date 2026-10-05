@@ -250,6 +250,58 @@ public class GhiIdeTest extends BasePlatformTestCase {
             assertTrue(provider.documentationTargets(file,overlay.lastIndexOf("value")).isEmpty());
         }finally{settings.executable=previousCompiler;settings.directory=previousDirectory;}
     }
+    public void testCompilerExpressionTypeHoverV0213Spans() throws Exception {
+        String compiler=System.getenv("GHI_TEST_HOVER_COMPILER");if(compiler==null||compiler.isBlank())return;
+        Path root=Files.createDirectory(diskRoot.resolve("type-hover-0213"));
+        Path model=Files.createDirectory(root.resolve("model"));
+        Files.writeString(model.resolve("node.ghi"),"namespace model\r\nclass Node { constructor() {} }\r\n");
+        String source=("namespace main\n"
+            +"import \"go:strconv\"\nimport model.Node as Alias\n// Ղ original UTF-8 bytes\n"
+            +"class Box[T any] {\n constructor() {}\n public func echo(value T) T { return value }\n"
+            +" public func nullable(value ?Alias = nil) ?Alias { return value }\n"
+            +" public func result(value ?Alias) (?Alias, error) { return value, nil }\n"
+            +" public func choose(condition bool) int { return condition ? (match 1 { 1 => 4, default => 5, }) : 6 }\n}\n"
+            +"func identity(value int) int { return value }\nfunc main() {\n"
+            +" box := new Box[?Alias]()\n condition := true\n _ = strconv.Atoi(\"42\")\n"
+            +" _ = condition ? 4 : 5\n _ = match 1 { 1 => 4, default => 5, }\n"
+            +" _ = identity(condition ? 4 : 5)\n _ = box.echo\n _ = box.echo(nil)\n"
+            +" _ = box.nullable\n _ = box.nullable()\n _ = box.result\n _ = box.result(nil)\n"
+            +" var cause error\n _ = condition ? cause : cause\n}\n").replace("\n","\r\n");
+        Path path=root.resolve("main.ghi");Files.writeString(path,source);
+        var virtual=com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);
+        assertNotNull(virtual);myFixture.configureFromExistingVirtualFile(virtual);
+        var settings=GhiSettings.get(getProject()).getState();
+        String previousCompiler=settings.executable,previousDirectory=settings.directory;
+        try{
+            settings.executable=compiler;settings.directory=root.toString();
+            var snapshot=GhiTypeDocumentation.Snapshot.capture(myFixture.getFile());assertNotNull(snapshot);
+            String editorText=snapshot.text;
+            String json=java.util.concurrent.CompletableFuture.supplyAsync(()->GhiTypeDocumentation.runProcess(
+                new ProcessBuilder(compiler,"analyze","--json","--types","--project",root.toString(),
+                    "--stdin","--filename",path.toString()).directory(root.toFile()),
+                editorText.getBytes(java.nio.charset.StandardCharsets.UTF_8),snapshot::isCurrent,TimeUnit.SECONDS.toNanos(30)))
+                .get(40,TimeUnit.SECONDS);
+            assertNotNull(json);
+            assertEquals("int",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,editorText.indexOf("Atoi(\"42\")")+"Atoi".length()));
+            assertEquals("int",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,editorText.indexOf("_ = condition ? 4 : 5")+"_ = condition ".length()));
+            assertEquals("int",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,editorText.indexOf("_ = match 1")+"_ = ".length()));
+            assertEquals("int",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,editorText.indexOf("identity(condition")+"identity".length()));
+            assertEquals("func(value ?Alias) ?Alias",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,
+                editorText.indexOf("box.echo\n")+"box.".length()));
+            assertEquals("?Alias",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,
+                editorText.indexOf("box.echo(nil)")+"box.echo".length()));
+            assertEquals("func(value ?Alias) ?Alias",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,
+                editorText.indexOf("box.nullable\n")+"box.".length()));
+            assertEquals("?Alias",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,
+                editorText.indexOf("box.nullable()")+"box.nullable".length()));
+            assertEquals("func(value ?Alias) (?Alias, error)",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,
+                editorText.indexOf("box.result\n")+"box.".length()));
+            assertEquals("?Alias",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,
+                editorText.indexOf("box.result(nil)")+"box.result".length()));
+            assertEquals("error",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,editorText,
+                editorText.indexOf("condition ? cause")+"condition ".length()));
+        }finally{settings.executable=previousCompiler;settings.directory=previousDirectory;}
+    }
     public void testCompilerExpressionTypeHoverRejectsUnverifiedRanges(){
         String source="namespace main\nfunc main(){println(\"Ա😀\"); value := 1}\n";
         Path path=Path.of("C:/source/main.ghi");String sha=java.util.HexFormat.of().formatHex(hash(source));

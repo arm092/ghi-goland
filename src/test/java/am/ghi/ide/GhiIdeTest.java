@@ -214,6 +214,93 @@ public class GhiIdeTest extends BasePlatformTestCase {
         assertEquals(myFixture.getEditor().getDocument().getLineStartOffset(1)+question,
             GhiExternalAnnotator.editorOffset(myFixture.getEditor().getDocument(),1,unicodeProblems.getFirst().column()));
     }
+    public void testCompilerExpressionTypeHoverUsesCurrentBufferAndProjectState() throws Exception {
+        String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
+        Path root=Files.createDirectory(diskRoot.resolve("type-hover"));Path path=root.resolve("main.ghi");
+        String saved="namespace main\nfunc identity(v int) int {return v}\nfunc main(){value := identity(7); println(value)}\n";
+        Files.writeString(path,saved);
+        var virtual=com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);
+        assertNotNull(virtual);myFixture.configureFromExistingVirtualFile(virtual);
+        var file=myFixture.getFile();var editor=myFixture.getEditor();
+        var settings=GhiSettings.get(getProject()).getState();
+        String previousCompiler=settings.executable,previousDirectory=settings.directory;
+        try{
+            settings.executable=compiler;settings.directory=root.toString();
+            int savedOffset=saved.lastIndexOf("value");
+            assertTrue(com.intellij.platform.backend.documentation.DocumentationTargetProvider.EP_NAME.getExtensionList().stream()
+                .anyMatch(provider->provider instanceof GhiTypeDocumentation));
+            var provider=new GhiTypeDocumentation();
+            assertEquals(1,provider.documentationTargets(file,savedOffset).size());
+            var initial=GhiTypeDocumentation.Snapshot.capture(file);assertNotNull(initial);
+            assertEquals("int",java.util.concurrent.CompletableFuture.supplyAsync(()->GhiTypeDocumentation.analyze(initial,savedOffset)).get(40,TimeUnit.SECONDS));
+            String overlay="namespace main\nfunc identity(v string) string {return v}\nfunc main(){value := identity(\"x\"); println(value)}\n";
+            com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(getProject(),()->editor.getDocument().setText(overlay));
+            assertFalse(initial.isCurrent());
+            var changed=GhiTypeDocumentation.Snapshot.capture(file);assertNotNull(changed);
+            assertEquals("string",java.util.concurrent.CompletableFuture.supplyAsync(()->GhiTypeDocumentation.analyze(changed,overlay.lastIndexOf("value"))).get(40,TimeUnit.SECONDS));
+            assertEquals(saved,Files.readString(path));
+            Path sibling=root.resolve("other.ghi");Files.writeString(sibling,"namespace main\nfunc helper(){}\n");
+            var other=com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByNioFile(sibling);
+            assertNotNull(other);
+            var otherDocument=com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(other);
+            assertNotNull(otherDocument);
+            com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(getProject(),()->otherDocument.setText("namespace main\nfunc helper(){println(1)}\n"));
+            assertFalse(changed.isCurrent());
+            assertNull("Another unsaved project file must suppress disk-based types",GhiTypeDocumentation.Snapshot.capture(file));
+            assertTrue(provider.documentationTargets(file,overlay.lastIndexOf("value")).isEmpty());
+        }finally{settings.executable=previousCompiler;settings.directory=previousDirectory;}
+    }
+    public void testCompilerExpressionTypeHoverRejectsUnverifiedRanges(){
+        String source="namespace main\nfunc main(){println(\"Ա😀\"); value := 1}\n";
+        Path path=Path.of("C:/source/main.ghi");String sha=java.util.HexFormat.of().formatHex(hash(source));
+        int offset=source.indexOf("value"),start=GhiTypeDocumentation.utf8Offset(source,offset);
+        String header="{\"schemaVersion\":1,\"filename\":\"C:/source/main.ghi\",\"sha256\":\""+sha+"\",\"diagnostics\":[],\"capabilities\":[\"expressionTypes\"]";
+        String json=header+",\"expressionTypes\":[{\"start\":"+(start-2)+",\"end\":"+(start+5)+",\"type\":\"wider\"},{\"start\":"+start+",\"end\":"+(start+5)+",\"type\":\"int\"}]}";
+        assertEquals("int",GhiTypeDocumentation.typeAt(json,path,sha,source,offset));
+        assertNull(GhiTypeDocumentation.typeAt(json,path,sha,source,source.indexOf("println")));
+        assertNull(GhiTypeDocumentation.typeAt(json,path,"wrong",source,offset));
+        assertNull(GhiTypeDocumentation.typeAt(header+"}",path,sha,source,offset));
+        assertNull(GhiTypeDocumentation.typeAt(header.replace("expressionTypes","tokens")+",\"expressionTypes\":[{\"start\":"+start+",\"end\":"+(start+5)+",\"type\":\"int\"}]}",path,sha,source,offset));
+        assertNull(GhiTypeDocumentation.typeAt(header.replace("\"diagnostics\":[]","\"diagnostics\":[{}]")+",\"expressionTypes\":[{\"start\":"+start+",\"end\":"+(start+5)+",\"type\":\"int\"}]}",path,sha,source,offset));
+    }
+    public void testCompilerExpressionTypeHoverTimeoutStopsNonReaderAndChild() throws Exception {
+        Path pidFile=diskRoot.resolve("hover-child.pid");
+        Path fake=diskRoot.resolve("HangingHoverProcess.java");
+        Files.writeString(fake,"""
+            import java.nio.file.*;
+            class HangingHoverProcess {
+                public static void main(String[] args) throws Exception {
+                    boolean windows=System.getProperty("os.name").startsWith("Windows");
+                    Process child=new ProcessBuilder(windows?new String[]{"ping","-n","30","127.0.0.1"}:new String[]{"sleep","30"})
+                        .redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+                    Files.writeString(Path.of(args[0]),Long.toString(child.pid()));
+                    child.waitFor();
+                }
+            }
+            """);
+        String java=Path.of(System.getProperty("java.home"),"bin",System.getProperty("os.name").startsWith("Windows")?"java.exe":"java").toString();
+        var command=new ProcessBuilder(java,fake.toString(),pidFile.toString());
+        long started=System.nanoTime();
+        assertNull(GhiTypeDocumentation.runProcess(command,new byte[8*1024*1024],()->true,TimeUnit.SECONDS.toNanos(8)));
+        assertTrue("Hover analysis must have a bounded timeout",TimeUnit.NANOSECONDS.toSeconds(System.nanoTime()-started)<15);
+        assertTrue("The fake compiler must have started its child",Files.exists(pidFile));
+        long pid=Long.parseLong(Files.readString(pidFile).trim());
+        for(int i=0;i<30&&ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);i++)Thread.sleep(100);
+        assertFalse("Hover cancellation must stop the compiler's child process",ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false));
+        Path cancelledPid=diskRoot.resolve("hover-cancelled-child.pid");
+        long cancellationStarted=System.nanoTime();
+        assertNull(GhiTypeDocumentation.runProcess(new ProcessBuilder(java,fake.toString(),cancelledPid.toString()),
+            new byte[8*1024*1024],()->!Files.exists(cancelledPid),TimeUnit.SECONDS.toNanos(15)));
+        assertTrue("An obsolete hover must stop before its timeout",TimeUnit.NANOSECONDS.toSeconds(System.nanoTime()-cancellationStarted)<10);
+        assertTrue(Files.exists(cancelledPid));
+        long cancelledChild=Long.parseLong(Files.readString(cancelledPid).trim());
+        for(int i=0;i<30&&ProcessHandle.of(cancelledChild).map(ProcessHandle::isAlive).orElse(false);i++)Thread.sleep(100);
+        assertFalse(ProcessHandle.of(cancelledChild).map(ProcessHandle::isAlive).orElse(false));
+    }
+    private static byte[] hash(String value){
+        try{return java.security.MessageDigest.getInstance("SHA-256").digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+        catch(java.security.NoSuchAlgorithmException error){throw new AssertionError(error);}
+    }
     public void testCompilerDiagnosticLocationsNamesAndContinuations() throws Exception {
         String compiler=System.getenv("GHI_TEST_COMPILER");if(compiler==null||compiler.isBlank())return;
         record Case(String source,int line,int column,String message){}

@@ -27,6 +27,12 @@ With Ghi v0.2.10+, ternary expressions receive compiler diagnostics in the edito
 
 Member completion follows explicitly declared types and simple constructor, function call, field, method call, and local initializer chains. It does not infer types for compound expressions or arbitrary control flow.
 
+### Expression type hover
+
+The unreleased development checkout adds Quick Documentation for checked expression types with a Ghi compiler supporting `analyze --json --types` (introduced in 0.2.12). The linked v0.1.8 ZIP does not include this feature. Enable **Show quick documentation on hover** in GoLand to see types on mouse hover. The type comes from the compiler's original-source byte ranges; the plugin maps them to the current editor text. It shows the narrowest checked expression under the cursor and leaves unsupported or ambiguous expressions without a type.
+
+Type analysis runs in the background with a timeout and requires the configured project's Go toolchain and dependencies. An unsaved edit to the current existing production `.ghi` file is sent in memory without modifying the disk file. If another file in the project is unsaved, type hover is suppressed because the compiler would read an older version of that file from disk. Failed or outdated analysis does not produce a hover result. The type index is conservative: declarations, rewritten constructs and some first-line expressions may have no entry.
+
 Plain `enum Direction { North, South, }` cases have the distinct `Direction` type. Explicit `string`, `int`, or `bool` backed enum cases use that backing type. The plugin highlights enum declarations and cases and supports case navigation and completion; the compiler checks invalid declarations and assignments to immutable cases.
 
 ## Debugging

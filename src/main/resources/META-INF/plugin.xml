@@ -15,6 +15,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <fileType name="Ghi" language="Ghi" implementationClass="am.ghi.ide.GhiFileType" fieldName="INSTANCE" extensions="ghi"/>
         <lang.parserDefinition language="Ghi" implementationClass="am.ghi.ide.GhiParserDefinition"/>
+        <platform.backend.documentation.targetProvider implementation="am.ghi.ide.GhiTypeDocumentation"/>
         <lang.syntaxHighlighterFactory language="Ghi" implementationClass="am.ghi.ide.GhiHighlighterFactory"/>
         <intentionAction><className>am.ghi.ide.GhiImportIntention$Import</className><category>Ghi</category><skipBeforeAfter>true</skipBeforeAfter></intentionAction>
         <intentionAction><className>am.ghi.ide.GhiImportIntention$Shorten</className><category>Ghi</category><skipBeforeAfter>true</skipBeforeAfter></intentionAction>

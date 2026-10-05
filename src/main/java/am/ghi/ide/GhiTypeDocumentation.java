@@ -92,8 +92,7 @@ public final class GhiTypeDocumentation implements DocumentationTargetProvider {
         }
         boolean isCurrent(){
             if(ApplicationManager.getApplication().isReadAccessAllowed())return currentState();
-            try{return ReadAction.computeCancellable(this::currentState);}
-            catch(ReadAction.CannotReadException ignored){return false;}
+            return ReadAction.nonBlocking(this::currentState).expireWith(project).executeSynchronously();
         }
         private boolean currentState(){
             if(project.isDisposed()||!file.isValid()||document.getModificationStamp()!=documentStamp

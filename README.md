@@ -13,7 +13,7 @@ GoLand 2025.1 bundles a Delve version whose Go version check rejects the Go 1.26
 
 The plugin has a [JetBrains Marketplace listing](https://plugins.jetbrains.com/plugin/34508-ghi). Versions become available there after Marketplace review.
 
-To install directly, download the [v0.1.9 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.9/ghi-goland-0.1.9.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+To install directly, download the [v0.1.10 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.10/ghi-goland-0.1.10.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
 
 ## Editor diagnostics and completion
 

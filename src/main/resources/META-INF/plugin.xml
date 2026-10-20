@@ -3,7 +3,7 @@
     <name>Ghi</name>
     <vendor url="https://github.com/arm092/ghi-goland">Arman Khachatryan</vendor>
     <description><![CDATA[
-        Ghi (Go, Hierarchy, Interfaces) support for GoLand.
+        <p>Support for the <a href="https://github.com/arm092/ghi">Ghi programming language</a> (Go, Hierarchy, Interfaces) in GoLand.</p>
         Recognizes .ghi files, highlights syntax, supports comments and brace matching,
         and builds or runs projects in the IDE console with clickable compiler diagnostics.
         Configure the compiler and project directory under Languages &amp; Frameworks &gt; Ghi.

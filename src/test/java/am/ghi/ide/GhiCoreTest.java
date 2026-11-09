@@ -6,6 +6,26 @@ import com.intellij.psi.tree.IElementType;
 import java.nio.file.Path;
 import java.util.*;
 public class GhiCoreTest {
+    @Test public void contextualAbstractAndStaticModifiers(){
+        String source="abstract class Base { public abstract func read(value string) string\n"
+            +"public static count int = 0\npublic static func create() {}\npublic static int\n}\n"
+            +"func static(abstract int) int { static := abstract; return static }\nclass Callbacks {public static func() int\npublic abstract func() int}";
+        var lexer=new GhiHighlightingLexer();lexer.start(source);var roles=new HashMap<Integer,IElementType>();
+        while(lexer.getTokenType()!=null){roles.put(lexer.getTokenStart(),lexer.getTokenType());lexer.advance();}
+        assertEquals(GhiLexer.KEYWORD,roles.get(0));
+        assertEquals(GhiLexer.KEYWORD,roles.get(source.indexOf("abstract func")));
+        assertEquals(GhiLexer.KEYWORD,roles.get(source.indexOf("static count")));
+        assertEquals(GhiLexer.KEYWORD,roles.get(source.indexOf("static func")));
+        assertEquals(GhiHighlightingLexer.FIELD,roles.get(source.indexOf("count int")));
+        assertEquals(GhiHighlightingLexer.METHOD,roles.get(source.indexOf("read(")));
+        assertEquals(GhiHighlightingLexer.FIELD,roles.get(source.indexOf("static int")));
+        assertEquals(GhiHighlightingLexer.FUNCTION,roles.get(source.indexOf("static(abstract")));
+        assertEquals(GhiHighlightingLexer.PARAMETER,roles.get(source.indexOf("abstract int")));
+        assertEquals(GhiHighlightingLexer.LOCAL,roles.get(source.indexOf("return static")+7));
+        assertEquals(GhiHighlightingLexer.FIELD,roles.get(source.indexOf("static func()")));
+        assertEquals(GhiHighlightingLexer.FIELD,roles.get(source.indexOf("abstract func()")));
+        assertTrue(lex(source).stream().filter(t->t.text().equals("abstract")||t.text().equals("static")).allMatch(t->t.type()==GhiLexer.IDENTIFIER));
+    }
     private record Token(IElementType type,String text,int start){}
     private static List<Token> lex(String source){
         var lexer=new GhiLexer();lexer.start(source);

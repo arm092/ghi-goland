@@ -24,7 +24,7 @@ public final class GhiCompletion extends CompletionContributor {
             if(!preceding.endsWith(".")&&!preceding.substring(preceding.lastIndexOf('\n')+1).stripLeading().startsWith("import ")){
                 for(var choice:GhiTypeImports.candidates(file,null)){
                     if(available.stream().anyMatch(symbol->symbol==choice.symbol()))continue;
-                    if(preceding.matches("(?s).*\\bnew")&&!choice.symbol().kind.equals("class"))continue;
+                    if(preceding.matches("(?s).*\\bnew")&&(!choice.symbol().kind.equals("class")||choice.symbol().abstractType))continue;
                     result.addElement(LookupElementBuilder.create(choice,choice.symbol().name).withTailText(" ("+choice.path()+")",true).withIcon(GhiIcons.FILE)
                         .withInsertHandler((insertion,item)->GhiTypeImports.apply(insertion.getFile(),insertion.getEditor(),
                             new GhiTypeImports.Site(insertion.getStartOffset(),insertion.getTailOffset(),choice.symbol().name),choice)));

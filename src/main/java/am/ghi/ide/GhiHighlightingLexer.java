@@ -143,18 +143,19 @@ public final class GhiHighlightingLexer extends LexerBase {
             if(id(i) && scope.names().contains(text(i)) && !text(i-1).equals(".") && !colors.containsKey(words.get(i).start()))color(i,PARAMETER);
         }
         for(int i=0;i<words.size();i++){
+            if(modifier(i)&&(text(i+1).equals("class")||inClass(i)&&outsideFunction(i)))color(i,GhiLexer.KEYWORD);
             if(!id(i) || colors.containsKey(words.get(i).start()))continue;
             String t=text(i),before=text(i-1),after=text(i+1);
             if(before.equals(".")){
                 color(i,enums.getOrDefault(text(i-2),Set.of()).contains(t)?CONSTANT:after.equals("(")?METHOD:types.getOrDefault(t,FIELD));
                 continue;
             }
+            if(inClass(i) && outsideFunction(i) && !newline(i,i+1) && (id(i+1) || Set.of("[","*","?","map","chan","func","interface","struct","<").contains(after))){color(i,FIELD);continue;}
             if(BUILTINS.contains(t)){color(i,BUILTIN_TYPE);continue;}
             if(types.containsKey(t)){color(i,types.get(t));continue;}
             if(namespaces.contains(t) && after.equals(".")){color(i,NAMESPACE);continue;}
             if(after.equals("(")){color(i,FUNCTION);continue;}
             if(constants.contains(t)){color(i,CONSTANT);continue;}
-            if(inClass(i) && outsideFunction(i) && (id(i+1) || Set.of("[","*","?","map","chan").contains(after))){color(i,FIELD);continue;}
             color(i,LOCAL);
         }
     }
@@ -167,6 +168,7 @@ public final class GhiHighlightingLexer extends LexerBase {
         }
         return -1;
     }
+    private boolean modifier(int i){return GhiModifiers.at(i,this::text,this::id,at->newline(at,at+1));}
     private boolean inClass(int i){return classMembers.get(i);}
     private boolean outsideFunction(int i){return !functionMembers.get(i);}
     public int getState(){return delegate.getState();}

@@ -5,6 +5,104 @@ import com.intellij.lang.LanguageCommenters;
 import java.nio.file.*;
 import java.util.concurrent.TimeUnit;
 public class GhiIdeTest extends BasePlatformTestCase {
+    public void testAbstractAndStaticMemberNavigationCompletionAndHints(){
+        String source="namespace main\nclass Item { public label string }\n"
+            +"abstract class Base {\npublic abstract func describe(value string) string\n"
+            +"public static count int = 1\nprivate static secret int\nprotected static hidden int\n"
+            +"public static func make(value string) Item { return new Item() }\npublic field int\n}\n"
+            +"class Child extends Base { public override func describe(value string) string {return value} }\n"
+            +"func main(){ Child.count; Child.make(\"x\"); Base.field; child := new Child(); child.count; child.describe(\"x\") }\n";
+        var file=myFixture.configureByText("static-members.ghi",source);var model=GhiSymbols.forFile(file);
+        assertEquals(model.resolve(file,source.indexOf("count int")),model.resolve(file,source.indexOf("Child.count")+6));
+        assertEquals("make",model.resolve(file,source.indexOf("Child.make")+6).getText());
+        assertNull(model.resolve(file,source.indexOf("Base.field")+5));
+        assertNull(model.resolve(file,source.indexOf("child.count")+6));
+        assertEquals(java.util.List.of("value string"),model.callAt(file,source.indexOf("Child.make(\"x\")")+11).symbol().parameters);
+        var abstractMethod=model.symbolAt(file,source.indexOf("describe(value"));assertNotNull(abstractMethod);assertNull(abstractMethod.body);
+        assertEquals(java.util.List.of("value string"),abstractMethod.parameters);assertEquals("public",abstractMethod.visibility);
+        var factory=model.symbolAt(file,source.indexOf("make(value"));assertTrue(factory.staticMember);
+        assertEquals(1,model.methodFamily(factory).size());
+        for(String receiver:java.util.List.of("Child","child")){
+            file=myFixture.configureByText("static-complete.ghi",source.replace("Child.count;",(receiver.equals("child")?"new Child()":receiver)+".<caret>;"));
+            var names=GhiSymbols.forFile(file).complete(file,myFixture.getCaretOffset()).stream().map(s->s.name).toList();
+            if(receiver.equals("Child")){assertTrue(names.toString(),names.containsAll(java.util.List.of("count","make")));assertFalse(names.contains("field"));assertFalse(names.contains("describe"));}
+            else {assertTrue(names.toString(),names.containsAll(java.util.List.of("field","describe")));assertFalse(names.contains("count"));assertFalse(names.contains("make"));}
+            assertFalse(names.contains("secret"));assertFalse(names.contains("hidden"));assertFalse(names.contains("static"));
+        }
+        file=myFixture.configureByText("static-chain.ghi",source+"\nfunc chain(){Child.make(\"x\").<caret>}\n");
+        assertTrue(GhiSymbols.forFile(file).complete(file,myFixture.getCaretOffset()).stream().anyMatch(s->s.name.equals("label")));
+        file=myFixture.configureByText("abstract-new.ghi",source+"\nfunc create(){new <caret>}\n");
+        var names=GhiSymbols.forFile(file).complete(file,myFixture.getCaretOffset()).stream().map(s->s.name).toList();
+        assertTrue(names.contains("Child"));assertFalse(names.contains("Base"));
+    }
+
+    public void testStaticMethodsDoNotJoinInstanceRenameFamiliesOrExposeThis(){
+        String source="namespace main\ninterface Reader {func read() string}\n"
+            +"class Instance {public func read() string{return \"x\"}}\n"
+            +"class Utility {public static func read() string{return \"x\"}\npublic field int\npublic static func run(){this.field;parent.field;read();<caret>}}\n";
+        var file=myFixture.configureByText("static-isolation.ghi",source);source=file.getText();var model=GhiSymbols.forFile(file);
+        var instance=model.symbolAt(file,source.indexOf("func read",source.indexOf("class Instance"))+5);
+        var utility=model.symbolAt(file,source.indexOf("func read",source.indexOf("class Utility"))+5);
+        assertTrue(utility.staticMember);assertFalse(model.methodFamily(instance).contains(utility));assertEquals(1,model.methodFamily(utility).size());
+        assertNull(model.resolve(file,source.indexOf("this.field")));assertNull(model.resolve(file,source.indexOf("parent.field")));
+        assertNull(model.resolve(file,source.indexOf("read();")));
+        assertFalse(model.complete(file,myFixture.getCaretOffset()).stream().anyMatch(s->s.name.equals("field")));
+        assertFalse(model.complete(file,myFixture.getCaretOffset()).stream().anyMatch(s->s.name.equals("read")));
+    }
+
+    public void testGenericStaticMembersAndContextualNames(){
+        String source="namespace main\nclass Factory[T any] {public static count int = 0\npublic static func identity(value T) T{return value}}\n"
+            +"class TextFactory extends Factory[string] {}\ntype abstract int\ntype static int\nclass Value {public static abstract\npublic abstract static}\n"
+            +"class Callbacks {public static func() int\npublic abstract func() int}\ntype constructor int\nclass Contextual {public static constructor}\n"
+            +"func static(abstract int) int{return abstract}\nfunc main(){Factory[int].identity(3);TextFactory.identity(\"x\");Factory[int].count;value:=new Value();value.static;value.abstract;callback:=new Callbacks();callback.static;callback.abstract;static(1);next:=Factory[int].identity;next(4)}\n";
+        var file=myFixture.configureByText("generic-static.ghi",source);var model=GhiSymbols.forFile(file);
+        assertEquals(java.util.List.of("value int"),model.callAt(file,source.indexOf("identity(3)")+9).symbol().parameters);
+        assertEquals(java.util.List.of("value string"),model.callAt(file,source.indexOf("identity(\"x\")")+9).symbol().parameters);
+        assertEquals(java.util.List.of("value int"),model.callAt(file,source.indexOf("next(4)")+5).symbol().parameters);
+        assertEquals(model.resolve(file,source.indexOf("count int")),model.resolve(file,source.indexOf("Factory[int].count")+13));
+        assertEquals("static",model.resolve(file,source.indexOf("value.static")+6).getText());
+        assertEquals("abstract",model.resolve(file,source.indexOf("value.abstract")+6).getText());
+        assertEquals("static",model.resolve(file,source.lastIndexOf("static(1)")).getText());
+        for(String name:java.util.List.of("static","abstract")){
+            var field=model.symbolAt(file,source.indexOf("callback."+name)+9);assertNotNull(field);assertEquals("field",field.kind);assertFalse(field.staticMember);
+        }
+        var contextual=model.symbolAt(file,source.indexOf("static constructor"));assertNotNull(contextual);assertEquals("field",contextual.kind);assertFalse(contextual.staticMember);
+        file=myFixture.configureByText("generic-static-complete.ghi",source+"\nfunc completion(){Factory[int].<caret>}\n");
+        var identity=GhiSymbols.forFile(file).complete(file,myFixture.getCaretOffset()).stream().filter(s->s.name.equals("identity")).findFirst().orElseThrow();
+        assertEquals(java.util.List.of("value int"),identity.parameters);
+    }
+
+    public void testCompilerAbstractStaticTypesAndDiagnostics() throws Exception {
+        String compiler=System.getenv("GHI_TEST_FEATURE_COMPILER");if(compiler==null||compiler.isBlank())return;
+        Path root=Files.createDirectory(diskRoot.resolve("abstract-static"));Path library=Files.createDirectory(root.resolve("model"));
+        Files.writeString(library.resolve("factory.ghi"),"namespace model\nclass Node {}\nclass Factory[T any] {public static count int = 0\npublic static func identity(value T) T{return value}}\n");
+        myFixture.addFileToProject("model/factory.ghi",Files.readString(library.resolve("factory.ghi")));
+        String source="namespace main\nimport model.Node as Alias\nimport model.Factory as Maker\n"
+            +"abstract class Reader {public abstract func read(value ?Alias) ?Alias}\n"
+            +"class Concrete extends Reader {public override func read(value ?Alias) ?Alias{return value}}\n"
+            +"class Child extends Maker[?Alias] {}\nfunc main(){\n_ = Maker[?Alias].identity(nil)\n_ = Child.identity(nil)\n_ = Maker[int].count\nvar reader Reader = new Concrete()\n_ = reader.read(nil)\n}\n";
+        Path path=root.resolve("main.ghi");Files.writeString(path,source);
+        var virtual=com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);assertNotNull(virtual);myFixture.configureFromExistingVirtualFile(virtual);
+        var settings=GhiSettings.get(getProject()).getState();String previousCompiler=settings.executable,previousDirectory=settings.directory;
+        try{
+            settings.executable=compiler;settings.directory=root.toString();
+            var diagnostics=new GhiExternalAnnotator().doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,source,42,true));
+            assertTrue(diagnostics.toString(),diagnostics.isEmpty());
+            var snapshot=GhiTypeDocumentation.Snapshot.capture(myFixture.getFile());assertNotNull(snapshot);
+            String json=java.util.concurrent.CompletableFuture.supplyAsync(()->GhiTypeDocumentation.runProcess(
+                new ProcessBuilder(compiler,"analyze","--json","--types","--project",root.toString(),"--stdin","--filename",path.toString()).directory(root.toFile()),
+                snapshot.text.getBytes(java.nio.charset.StandardCharsets.UTF_8),snapshot::isCurrent,TimeUnit.SECONDS.toNanos(30))).get(40,TimeUnit.SECONDS);
+            assertNotNull(json);
+            for(String call:java.util.List.of("Maker[?Alias].identity","Child.identity","reader.read"))
+                assertEquals(json,"?Alias",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,snapshot.text,snapshot.text.indexOf(call)+call.length()));
+            assertEquals("int",GhiTypeDocumentation.typeAt(json,path,snapshot.sha,snapshot.text,snapshot.text.indexOf("Maker[int].count")+11));
+            var model=GhiSymbols.forFile(myFixture.getFile());
+            assertEquals(java.util.List.of("value ?Alias"),model.callAt(myFixture.getFile(),source.indexOf("Child.identity(nil)")+15).symbol().parameters);
+            String invalid=source.replace("public override func read(value ?Alias) ?Alias{return value}","");
+            var problems=new GhiExternalAnnotator().doAnnotate(new GhiExternalAnnotator.Input(compiler,root,path,invalid,42,true));
+            assertFalse(problems.isEmpty());assertTrue(problems.toString(),problems.stream().anyMatch(p->p.message().contains("abstract method read")));
+        }finally{settings.executable=previousCompiler;settings.directory=previousDirectory;}
+    }
     private Path diskRoot;
     protected void setUp() throws Exception {super.setUp();diskRoot=Files.createTempDirectory("ghi-ide-test-");}
     protected void tearDown() throws Exception {
@@ -1187,15 +1285,24 @@ public class GhiIdeTest extends BasePlatformTestCase {
                 catch(java.io.IOException ignored){Thread.sleep(50);}
             }
             assertTrue("Real Request Journal HTTP server did not start: "+processOutput+"; suspended="+session.isSuspended()+"; position="+session.getCurrentPosition(),ready);
-            var valid=journalPost(http,base,"{\"title\":\"Debugger request\"}");
-            journalStop(session,root.resolve(paths[0]),lines[0]);
+            var registration=http.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(base+"/auth/register"))
+                .header("Content-Type","application/json").POST(java.net.http.HttpRequest.BodyPublishers.ofString(
+                    "{\"email\":\"debugger@example.test\",\"password\":\"isolated debugger test password\"}")).build(),java.net.http.HttpResponse.BodyHandlers.ofString());
+            assertEquals(registration.body(),201,registration.statusCode());
+            String token=com.google.gson.JsonParser.parseString(registration.body()).getAsJsonObject().get("token").getAsString();assertFalse(token.isBlank());
+            var valid=journalPost(http,base,token,"{\"title\":\"Debugger request\"}");
+            try{journalStop(session,root.resolve(paths[0]),lines[0]);}
+            catch(AssertionError failure){
+                String response=valid.handle((value,error)->error!=null?error.toString():value.statusCode()+" "+value.body()).getNow("pending");
+                throw new AssertionError(failure.getMessage()+"; request="+response+"; Delve="+processOutput,failure);
+            }
             var values=debugChildren(session.getSuspendContext().getActiveExecutionStack().getTopFrame());
             assertTrue(debugDisplay(debugValue(values,"value")).contains("Debugger request"));
             assertNotNull(debugValue(debugChildren(debugValue(values,"this")),"repository"));
             assertTrue(journalFrame(session).contains("journal.application.Service.Create"));
             session.stepOver(false);journalStop(session,root.resolve(paths[0]),lines[0]+1);
             session.resume();assertEquals(201,valid.get(15,TimeUnit.SECONDS).statusCode());
-            var invalid=journalPost(http,base,"{\"title\":\"\"}");
+            var invalid=journalPost(http,base,token,"{\"title\":\"\"}");
             journalStop(session,root.resolve(paths[0]),lines[0]);session.resume();
             journalStop(session,root.resolve(paths[1]),lines[1]);
             values=debugChildren(session.getSuspendContext().getActiveExecutionStack().getTopFrame());
@@ -1211,7 +1318,7 @@ public class GhiIdeTest extends BasePlatformTestCase {
             assertTrue(debugDisplay(journalField(caught,"message",5)).contains("invalid request fields"));
             assertEquals("422",debugDisplay(journalField(caught,"code",5)));
             session.resume();assertEquals(422,invalid.get(15,TimeUnit.SECONDS).statusCode());
-            var missing=http.sendAsync(java.net.http.HttpRequest.newBuilder(java.net.URI.create(base+"/requests/999999")).build(),java.net.http.HttpResponse.BodyHandlers.ofString());
+            var missing=http.sendAsync(java.net.http.HttpRequest.newBuilder(java.net.URI.create(base+"/requests/999999")).header("Authorization","Bearer "+token).build(),java.net.http.HttpResponse.BodyHandlers.ofString());
             journalStop(session,root.resolve(paths[3]),lines[3]);session.resume();
             journalStop(session,root.resolve(paths[4]),lines[4]);
             caught=debugValue(debugChildren(session.getSuspendContext().getActiveExecutionStack().getTopFrame()),"err");assertNotNull(caught);
@@ -1232,8 +1339,8 @@ public class GhiIdeTest extends BasePlatformTestCase {
             com.intellij.openapi.application.WriteAction.run(()->{var roots=com.intellij.openapi.roots.ModuleRootManager.getInstance(myFixture.getModule()).getModifiableModel();for(var entry:roots.getContentEntries())if(entry.getUrl().equals(virtual.getUrl()))roots.removeContentEntry(entry);roots.commit();});
         }
     }
-    private java.util.concurrent.CompletableFuture<java.net.http.HttpResponse<String>> journalPost(java.net.http.HttpClient client,String base,String body){
-        return client.sendAsync(java.net.http.HttpRequest.newBuilder(java.net.URI.create(base+"/requests")).header("Content-Type","application/json").POST(java.net.http.HttpRequest.BodyPublishers.ofString(body)).build(),java.net.http.HttpResponse.BodyHandlers.ofString());
+    private java.util.concurrent.CompletableFuture<java.net.http.HttpResponse<String>> journalPost(java.net.http.HttpClient client,String base,String token,String body){
+        return client.sendAsync(java.net.http.HttpRequest.newBuilder(java.net.URI.create(base+"/requests")).header("Content-Type","application/json").header("Authorization","Bearer "+token).POST(java.net.http.HttpRequest.BodyPublishers.ofString(body)).build(),java.net.http.HttpResponse.BodyHandlers.ofString());
     }
     private void journalStop(com.intellij.xdebugger.XDebugSession session,Path file,int line) throws Exception {
         long deadline=System.currentTimeMillis()+15000;

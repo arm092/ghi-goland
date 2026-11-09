@@ -27,6 +27,10 @@ With Ghi v0.2.10+, ternary expressions receive compiler diagnostics in the edito
 
 Member completion follows explicitly declared types and simple constructor, function call, field, method call, and local initializer chains. It does not infer types for compound expressions or arbitrary control flow.
 
+### Abstract and static members (unreleased)
+
+With a compiler that supports abstract and static class members, the plugin recognizes `abstract class`, bodyless abstract method signatures, static methods and explicitly typed static fields. Class-qualified completion offers static members, including inherited members; instance completion offers instance members. Navigation follows inherited static members to their declaring class, and parameter hints substitute generic arguments. Static methods are excluded from instance override and structural-interface rename families. Abstract classes are omitted from `new` completion. The words `abstract` and `static` remain available as ordinary identifiers outside modifier positions.
+
 ### Expression type hover
 
 Plugin v0.1.9 adds Quick Documentation for checked expression types with **Ghi 0.2.12 or newer**. Enable **Show quick documentation on hover** in GoLand to see types on mouse hover. The type comes from the compiler's original-source byte ranges; the plugin maps them to the current editor text. It shows the narrowest checked expression under the cursor and leaves unsupported or ambiguous expressions without a type.

@@ -13,7 +13,7 @@ GoLand 2025.1 bundles a Delve version whose Go version check rejects the Go 1.26
 
 The plugin has a [JetBrains Marketplace listing](https://plugins.jetbrains.com/plugin/34508-ghi). Versions become available there after Marketplace review.
 
-To install directly, download the [v0.1.10 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.10/ghi-goland-0.1.10.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
+To install directly, download the [v0.1.11 ZIP](https://github.com/arm092/ghi-goland/releases/download/v0.1.11/ghi-goland-0.1.11.zip) and use **Settings → Plugins → Install Plugin from Disk**. Configure the compiler executable and project directory under **Settings → Languages & Frameworks → Ghi**.
 
 ## Editor diagnostics and completion
 
@@ -27,9 +27,9 @@ With Ghi v0.2.10+, ternary expressions receive compiler diagnostics in the edito
 
 Member completion follows explicitly declared types and simple constructor, function call, field, method call, and local initializer chains. It does not infer types for compound expressions or arbitrary control flow.
 
-### Abstract and static members (unreleased)
+### Abstract and static members
 
-With a compiler that supports abstract and static class members, the plugin recognizes `abstract class`, bodyless abstract method signatures, static methods and explicitly typed static fields. Class-qualified completion offers static members, including inherited members; instance completion offers instance members. Navigation follows inherited static members to their declaring class, and parameter hints substitute generic arguments. Static methods are excluded from instance override and structural-interface rename families. Abstract classes are omitted from `new` completion. The words `abstract` and `static` remain available as ordinary identifiers outside modifier positions.
+With Ghi 1.1.0 or newer, the plugin recognizes `abstract class`, bodyless abstract method signatures, static methods and explicitly typed static fields. Class-qualified completion offers static members, including inherited members; instance completion offers instance members. Navigation follows inherited static members to their declaring class, and parameter hints substitute generic arguments. Static methods are excluded from instance override and structural-interface rename families. Abstract classes are omitted from `new` completion. The words `abstract` and `static` remain available as ordinary identifiers outside modifier positions.
 
 ### Expression type hover
 
